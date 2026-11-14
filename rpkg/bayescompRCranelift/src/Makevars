@@ -12,13 +12,13 @@ all: $(SHLIB) rust_clean
 $(SHLIB): $(STATLIB)
 
 $(STATLIB):
-	@if ! $(RUST_PATH) command -v cargo > /dev/null 2>&1; then \
+	@$(RUST_PATH) if ! command -v cargo > /dev/null 2>&1; then \
 	  echo "Rust is required to build bayescompRCranelift: install rustc >= 1.85 and cargo, see https://www.rust-lang.org/tools/install"; exit 1; fi
 	@$(RUST_PATH) rustc --version
 	@$(RUST_PATH) cargo --version
 	cd rust && tar -xJf vendor.tar.xz
 	mkdir -p "$(CARGO_DIR)"
-	printf '[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source.vendored-sources]\ndirectory = "%s"\n' "$(CURDIR)/rust/vendor" > "$(CARGO_DIR)/config.toml"
+	printf '[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source.vendored-sources]\ndirectory = "rust/vendor"\n' > "$(CARGO_DIR)/config.toml"
 	$(RUST_PATH) CARGO_HOME="$(CARGO_DIR)" cargo build -j 2 --offline --locked --release --manifest-path=rust/Cargo.toml --target-dir "$(TARGET_DIR)" -p bcn-ffi --features cranelift
 
 rust_clean: $(SHLIB)

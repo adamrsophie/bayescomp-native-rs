@@ -18,7 +18,7 @@ $(STATLIB):
 	@cargo --version
 	cd rust && tar -xJf vendor.tar.xz
 	mkdir -p "$(CARGO_DIR)"
-	printf '[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source.vendored-sources]\ndirectory = "%s"\n' "$(CURDIR)/rust/vendor" > "$(CARGO_DIR)/config.toml"
+	printf '[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source.vendored-sources]\ndirectory = "rust/vendor"\n' > "$(CARGO_DIR)/config.toml"
 	CARGO_HOME="$(CARGO_DIR)" cargo build -j 2 --offline --locked --release --target=$(TARGET) --manifest-path=rust/Cargo.toml --target-dir "$(TARGET_DIR)" -p bcn-ffi --features cranelift
 
 rust_clean: $(SHLIB)
