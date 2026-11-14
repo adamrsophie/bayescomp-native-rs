@@ -1,0 +1,16 @@
+TARGET_DIR = $(CURDIR)/rust/target
+LIBDIR = $(TARGET_DIR)/release
+STATLIB = $(LIBDIR)/libbcn_ffi.a
+PKG_LIBS = -L$(LIBDIR) -lbcn_ffi -lpthread
+
+all: $(SHLIB) rust_clean
+
+$(SHLIB): $(STATLIB)
+
+$(STATLIB):
+	PATH="$(PATH):$(HOME)/.cargo/bin" cargo build --release --locked --manifest-path=rust/Cargo.toml --target-dir "$(TARGET_DIR)" -p bcn-ffi --features cranelift
+
+rust_clean: $(SHLIB)
+	rm -Rf "$(TARGET_DIR)"
+
+.PHONY: all rust_clean

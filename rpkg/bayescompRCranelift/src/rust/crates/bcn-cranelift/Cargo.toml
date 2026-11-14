@@ -1,0 +1,20 @@
+[package]
+name = "bcn-cranelift"
+description = "Cranelift JIT backend for bayescompR: compiles the lowered statement tree to machine code"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+bcn-core = { path = "../bcn-core" }
+cranelift-codegen = "0.137.0"
+cranelift-frontend = "0.137.0"
+cranelift-jit = "0.137.0"
+cranelift-module = "0.137.0"
+cranelift-native = "0.137.0"
+
+[dev-dependencies]
+serde_json.workspace = true

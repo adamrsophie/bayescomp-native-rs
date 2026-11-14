@@ -1,0 +1,2 @@
+useDynLib(bayescompRCranelift, .registration = TRUE)
+export(cranelift_engine)
