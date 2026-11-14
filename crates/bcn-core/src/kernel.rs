@@ -6,6 +6,10 @@
 //! the code generators turn it into native branches and loops, so the only
 //! calls left in the machine code are the leaf operations.
 
+/// Marks where a reject or fatal_error argument goes in its message; Stan
+/// string literals cannot contain this character.
+pub const REJECT_SLOT: char = '\u{0}';
+
 use crate::math::{Binary, Unary};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -158,6 +162,7 @@ pub enum OpKind {
     Param { ty: DeclType, bounds: Bounds, name: String },
     /// args: [value, bound args...]
     Check { bounds: Bounds, name: String },
+    /// message pieces separated by REJECT_SLOT, one per printed argument
     Reject { msg: String, fatal: bool },
 }
 

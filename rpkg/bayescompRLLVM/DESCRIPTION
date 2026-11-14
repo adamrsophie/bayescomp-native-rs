@@ -15,7 +15,7 @@ Depends: R (>= 4.2)
 Imports: bayescompR (>= 0.1.0)
 Suggests: testthat (>= 3.0.0)
 Remotes: adamrsophie/bayescompR
-SystemRequirements: Cargo (Rust's package manager), rustc >= 1.85, LLVM 18, 20, 21 or 22
+SystemRequirements: Cargo (Rust's package manager), rustc >= 1.92, LLVM 18, 20, 21 or 22
     (development files, found through llvm-config or the LLVM_CONFIG variable); Linux or macOS
 OS_type: unix
 Config/testthat/edition: 3

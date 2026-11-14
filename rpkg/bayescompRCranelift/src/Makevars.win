@@ -13,7 +13,7 @@ $(SHLIB): $(STATLIB)
 
 $(STATLIB):
 	@if ! command -v cargo > /dev/null 2>&1; then \
-	  echo "Rust is required to build bayescompRCranelift: install rustc >= 1.85 and cargo with the x86_64-pc-windows-gnu target"; exit 1; fi
+	  echo "Rust is required to build bayescompRCranelift: install rustc >= 1.92 and cargo with the x86_64-pc-windows-gnu target"; exit 1; fi
 	@rustc --version
 	@cargo --version
 	cd rust && tar -xJf vendor.tar.xz

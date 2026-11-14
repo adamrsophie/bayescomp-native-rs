@@ -400,6 +400,9 @@ pub fn lpmf(t: &mut Tape, dist: &str, args: &[&Val], propto: bool) -> R<S> {
             let i_t = a.inc(propto, &[1]);
             for i in 0..n {
                 let (k, al) = (ni(i), a.get(1, i));
+                if !(k == 0.0 || k == 1.0) {
+                    return Err(format!("E_DOMAIN: {f}: n is {k}, but must be in the interval [0, 1]"));
+                }
                 let sg = 2.0 * k - 1.0;
                 let x = sg * al;
                 if i_t { lp += -log1p_exp(-x) }

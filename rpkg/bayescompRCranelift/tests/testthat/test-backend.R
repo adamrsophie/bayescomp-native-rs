@@ -1,3 +1,4 @@
+BACKEND <- "cranelift"
 models <- list(
   lin = list(code = "data { int N; vector[N] x; vector[N] y; } parameters { real a; real b; real<lower=0> s; }
     model { a ~ normal(0, 5); b ~ normal(0, 5); s ~ exponential(1); y ~ normal(a + b * x, s); }",
@@ -43,4 +44,24 @@ test_that("a model copied to another session recompiles its native code", {
   u <- c(0.3, -0.2, 0.1)
   expect_identical(bayescompR::bayescomp_log_prob(m2, u), bayescompR::bayescomp_log_prob(m, u))
   expect_identical(bayescompR::bayescomp_grad_log_prob(m2, u), bayescompR::bayescomp_grad_log_prob(m, u))
+})
+
+test_that("native edge cases match Stan: shapes, bounds, stable functions and messages", {
+  nat <- function(code, data = list()) bayescompR::bayescomp_model(code, data = data, backend = BACKEND, allow_fallback = TRUE)
+  m <- nat("data { matrix[2, 3] A; matrix[3, 2] B; } parameters { real x; } model { target += x * sum(A + B); }",
+           list(A = matrix(1, 2, 3), B = matrix(2, 3, 2)))
+  expect_error(bayescompR::bayescomp_log_prob(m, 0), class = "bayescomp_shape_error")
+  ib <- nat("parameters { real<lower=positive_infinity()> x; } model { x ~ normal(0, 1); }")
+  expect_error(bayescompR::bayescomp_log_prob(ib, 0), class = "bayescomp_domain_error")
+  ld <- nat("parameters { real x; } model { target += log_diff_exp(0, x - 1e-20); }")
+  expect_equal(bayescompR::bayescomp_log_prob(ld, 0), log(1e-20), tolerance = 1e-8)
+  bl <- nat("data { int y; } parameters { real a; } model { y ~ bernoulli_logit(a); }", list(y = 2L))
+  expect_error(bayescompR::bayescomp_log_prob(bl, 0), class = "bayescomp_domain_error")
+  # theta exactly 0: the derivative is finite
+  lm <- nat("parameters { real t; } model { target += log_mix(t, -1, -1); }")
+  expect_equal(as.vector(bayescompR::bayescomp_grad_log_prob(lm, 0)), 0)
+  rj <- nat("parameters { real x; } model { reject(\"{} and \", x); }")
+  expect_error(bayescompR::bayescomp_log_prob(rj, 1), "\\{\\} and 1", class = "bayescomp_reject_error")
+  pr <- nat("parameters { vector[3] x; } model { target += prod(x); }")
+  expect_equal(as.vector(bayescompR::bayescomp_grad_log_prob(pr, c(2, 0, 3))), c(0, 6, 0))
 })

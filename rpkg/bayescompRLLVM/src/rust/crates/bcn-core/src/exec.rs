@@ -347,8 +347,15 @@ impl Runtime {
                 let lj = t.node(m.v.ln(), &[(m, 1.0 / m.v)]);
                 (x, Some(lj))
             } else {
-                let l = lo.as_ref().map(|v| at(v, i)).filter(|s| s.v.is_finite());
-                let h = hi.as_ref().map(|v| at(v, i)).filter(|s| s.v.is_finite());
+                let l = lo.as_ref().map(|v| at(v, i));
+                let h = hi.as_ref().map(|v| at(v, i));
+                // -inf and +inf mean no bound; NaN and bounds that exclude every value do not
+                if let Some(l) = l { if l.v.is_nan() || l.v == f64::INFINITY {
+                    return Err(format!("E_DOMAIN: lower bound is {}, but must be less than infinity", l.v)); } }
+                if let Some(h) = h { if h.v.is_nan() || h.v == f64::NEG_INFINITY {
+                    return Err(format!("E_DOMAIN: upper bound is {}, but must be greater than negative infinity", h.v)); } }
+                let l = l.filter(|s| s.v.is_finite());
+                let h = h.filter(|s| s.v.is_finite());
                 match (l, h) {
                     (Some(l), Some(h)) => {
                         let w = h.v - l.v;
@@ -521,7 +528,7 @@ impl Runtime {
             }
             OpKind::Reject { msg, fatal } => {
                 let mut m = String::new();
-                let mut parts = msg.split("{}");
+                let mut parts = msg.split(crate::kernel::REJECT_SLOT);
                 m.push_str(parts.next().unwrap_or(""));
                 for (k, p) in parts.enumerate() {
                     m.push_str(&fmt_val(&self.slots[a[k]]));

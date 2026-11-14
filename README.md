@@ -24,7 +24,7 @@ computed each capability.
 
 ## Install
 
-Needs Rust (`rustc` 1.85 or newer, with Cargo) and bayescompR.
+Needs Rust (`rustc` 1.92 or newer, with Cargo) and bayescompR.
 
 ```r
 remotes::install_github("adamrsophie/bayescompR")

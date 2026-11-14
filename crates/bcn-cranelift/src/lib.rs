@@ -93,7 +93,7 @@ fn k(b: &mut FunctionBuilder, x: usize) -> Value {
 fn query(b: &mut FunctionBuilder, c: &Ctx, f: usize, slot: usize) -> Value {
     let s = k(b, slot);
     call(b, c, c.s_out, f, &[c.rt, s, c.slot]);
-    b.ins().stack_load(c.ptr, types::I64, c.ss, 0)
+    b.ins().stack_load(types::I64, c.ss, 0)
 }
 
 fn emit(b: &mut FunctionBuilder, c: &Ctx, s: &Stmt, lp: Option<(Block, Block)>) {
@@ -131,7 +131,7 @@ fn emit(b: &mut FunctionBuilder, c: &Ctx, s: &Stmt, lp: Option<(Block, Block)>) 
             b.ins().jump(latch, &[i.into()]);
             b.switch_to_block(latch);
             let li = b.block_params(latch)[0];
-            let n = b.ins().iadd_imm_s(li, 1);
+            let n = b.ins().iadd_imm(li, 1);
             b.ins().jump(head, &[n.into()]);
             b.switch_to_block(exit);
         }
@@ -155,7 +155,7 @@ fn emit(b: &mut FunctionBuilder, c: &Ctx, s: &Stmt, lp: Option<(Block, Block)>) 
             emit(b, c, body, Some((exit, cont)));
             b.ins().jump(cont, &[]);
             b.switch_to_block(cont);
-            let nx = b.ins().iadd_imm_s(i, 1);
+            let nx = b.ins().iadd_imm(i, 1);
             b.ins().jump(head, &[nx.into()]);
             b.switch_to_block(exit);
         }
@@ -266,7 +266,7 @@ impl Compiled {
             let one = b.ins().iconst(types::I32, 1);
             b.ins().return_(&[one]);
             b.seal_all_blocks();
-            b.finalize(tcfg);
+            b.finalize();
         }
         let id = module
             .declare_function("bcn_model", Linkage::Local, &ctx.func.signature)

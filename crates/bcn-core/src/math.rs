@@ -46,10 +46,10 @@ pub fn map2(t: &mut Tape, a: &Val, b: &Val, f: Binary) -> R<Val> {
             Ok(a.with_scalars(&mut v.into_iter()))
         }
         (None, None) => {
-            let (fa, fb) = (a.flat(), b.flat());
-            if fa.len() != fb.len() {
-                return Err(format!("E_SHAPE: size mismatch in elementwise operation ({} and {})", fa.len(), fb.len()));
+            if a.shape() != b.shape() {
+                return Err(format!("E_SHAPE: size mismatch in elementwise operation ({:?} and {:?})", a.shape(), b.shape()));
             }
+            let (fa, fb) = (a.flat(), b.flat());
             let v: Vec<S> = fa.into_iter().zip(fb).map(|(x, y)| bin(t, x, y, f)).collect();
             Ok(a.with_scalars(&mut v.into_iter()))
         }
@@ -340,9 +340,14 @@ pub fn binary_fn(name: &str) -> Option<Binary> {
             (sp::lchoose(n, k), sp::digamma(n + 1.0) - sp::digamma(n - k + 1.0), -sp::digamma(k + 1.0) + sp::digamma(n - k + 1.0))
         },
         "log_diff_exp" => |a: f64, b: f64| {
-            let v = a + (-(b - a).exp()).ln_1p();
-            let e = (b - a).exp();
-            (v, 1.0 / (1.0 - e), -e / (1.0 - e))
+            // log(exp(a) - exp(b)) = a + log1m_exp(b - a), stable for b close to a
+            let d = b - a;
+            if d > 0.0 || a.is_nan() || b.is_nan() { return (f64::NAN, f64::NAN, f64::NAN); }
+            if b == f64::NEG_INFINITY { return (a, 1.0, 0.0); }
+            let l1m = if d > -std::f64::consts::LN_2 { (-d.exp_m1()).ln() } else { (-d.exp()).ln_1p() };
+            // derivatives 1 / (1 - e) and -e / (1 - e) with e = exp(d), via expm1
+            let om = -d.exp_m1();
+            (a + l1m, 1.0 / om, -d.exp() / om)
         },
         "log_sum_exp" => |a: f64, b: f64| {
             let m = a.max(b);

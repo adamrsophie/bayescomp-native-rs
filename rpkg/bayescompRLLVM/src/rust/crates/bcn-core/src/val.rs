@@ -17,6 +17,21 @@ impl Val {
         Val::Real(S::c(v))
     }
 
+    /// Container kind and dimensions, used to check elementwise operations.
+    pub fn shape(&self) -> Vec<usize> {
+        match self {
+            Val::Int(_) | Val::Real(_) => vec![],
+            Val::Vector(v) => vec![1, v.len()],
+            Val::RowVector(v) => vec![2, v.len()],
+            Val::Matrix { r, c, .. } => vec![3, *r, *c],
+            Val::Array(xs) => {
+                let mut s = vec![4, xs.len()];
+                if let Some(x) = xs.first() { s.extend(x.shape()); }
+                s
+            }
+        }
+    }
+
     pub fn as_int(&self) -> Result<i64, String> {
         match self {
             Val::Int(i) => Ok(*i),

@@ -541,7 +541,7 @@ impl Lw {
                     if it["kind"] == "string" {
                         msg.push_str(it["value"].as_str().unwrap_or(""));
                     } else {
-                        msg.push_str("{}");
+                        msg.push(crate::kernel::REJECT_SLOT);
                         args.push(self.expr(it, out)?);
                     }
                 }

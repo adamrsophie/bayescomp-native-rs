@@ -63,9 +63,13 @@ fn prod(t: &mut Tape, a: &[&Val]) -> R<Val> {
     }
     let f = a[0].flat();
     let v: f64 = f.iter().map(|s| s.v).product();
-    let partials: Vec<f64> = (0..f.len())
-        .map(|i| f.iter().enumerate().filter(|(j, _)| *j != i).map(|(_, s)| s.v).product())
-        .collect();
+    // product of the other elements from prefix and suffix products, O(n) and exact with zeros
+    let n = f.len();
+    let mut partials = vec![1.0; n];
+    let mut acc = 1.0;
+    for i in 0..n { partials[i] = acc; acc *= f[i].v; }
+    acc = 1.0;
+    for i in (0..n).rev() { partials[i] *= acc; acc *= f[i].v; }
     Ok(Val::Real(t.node_many(v, &f, &partials)))
 }
 
@@ -224,11 +228,16 @@ fn log_mix(t: &mut Tape, a: &[&Val]) -> R<Val> {
         return Err("log_mix: only the three scalar argument form is supported by the native backend".into());
     }
     let (th, l1, l2) = (scalar(a[0], "log_mix")?, scalar(a[1], "log_mix")?, scalar(a[2], "log_mix")?);
+    if !(0.0..=1.0).contains(&th.v) {
+        return Err(format!("E_DOMAIN: log_mix: Mixing proportion is {}, but must be in the interval [0, 1]", th.v));
+    }
     let (x, y) = (th.v.ln() + l1.v, (-th.v).ln_1p() + l2.v);
     let m = x.max(y);
     let v = m + ((x - m).exp() + (y - m).exp()).ln();
     let (wx, wy) = ((x - v).exp(), (y - v).exp());
-    Ok(Val::Real(t.node(v, &[(th, wx / th.v - wy / (1.0 - th.v)), (l1, wx), (l2, wy)])))
+    // d/dtheta = (exp(l1) - exp(l2)) / exp(v), finite at theta = 0 and 1
+    let dth = (l1.v - v).exp() - (l2.v - v).exp();
+    Ok(Val::Real(t.node(v, &[(th, dth), (l1, wx), (l2, wy)])))
 }
 
 fn softmax_core(t: &mut Tape, f: &[S], log: bool) -> Vec<S> {
@@ -283,7 +292,7 @@ fn slice(v: &Val, start: usize, n: usize, f: &str) -> R<Val> {
         _ => return Err(format!("{f}: expected a vector or array")),
     };
     if start + n > len {
-        return Err(format!("{f}: E_DOMAIN: index out of range (size {len})"));
+        return Err(format!("E_DOMAIN: {f}: index out of range (size {len})"));
     }
     Ok(match v {
         Val::Vector(x) => Val::Vector(x[start..start + n].to_vec()),

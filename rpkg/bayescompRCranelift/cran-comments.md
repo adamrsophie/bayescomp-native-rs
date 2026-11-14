@@ -10,7 +10,7 @@ bayescompR, which is submitted first.
   `cargo build --offline --locked -j 2`, with `CARGO_HOME` inside the build
   directory, so nothing is downloaded or written to the user's home.
 * The versions of `rustc` and `cargo` are printed in the installation log;
-  the minimum supported version is rustc 1.85.
+  the minimum supported version is rustc 1.92, the oldest rustc on the CRAN build machines (Windows).
 * The authors and licenses of the vendored crates are listed in
   `inst/AUTHORS`; they are MIT, Apache-2.0 (some with the LLVM exception),
   BSD-2-Clause, Unlicense or Zlib, all compatible with GPL-3.

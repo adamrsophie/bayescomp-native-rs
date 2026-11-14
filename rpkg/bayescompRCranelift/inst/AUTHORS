@@ -6,21 +6,22 @@ anyhow 1.0.104 (MIT OR Apache-2.0): David Tolnay <dtolnay@gmail.com>
 arbitrary 1.5.0 (MIT OR Apache-2.0): The Rust-Fuzz Project Developers, Nick Fitzgerald <fitzgen@gmail.com>, Manish Goregaokar <manishsmail@gmail.com>, Simonas Kazlauskas <arbitrary@kazlauskas.me>, Brian L. Troutwine <brian@troutwine.us>, Corey Farwell <coreyf@rwell.org>
 bitflags 1.3.2 (MIT/Apache-2.0): The Rust Project Developers
 bumpalo 3.20.4 (MIT OR Apache-2.0): Nick Fitzgerald <fitzgen@gmail.com>
-cranelift-assembler-x64 0.137.1 (Apache-2.0 WITH LLVM-exception): the cranelift-assembler-x64 developers
-cranelift-assembler-x64-meta 0.137.1 (Apache-2.0 WITH LLVM-exception): the cranelift-assembler-x64-meta developers
-cranelift-bforest 0.137.1 (Apache-2.0 WITH LLVM-exception): The Cranelift Project Developers
-cranelift-bitset 0.137.1 (Apache-2.0 WITH LLVM-exception): The Cranelift Project Developers
-cranelift-codegen 0.137.1 (Apache-2.0 WITH LLVM-exception): The Cranelift Project Developers
-cranelift-codegen-meta 0.137.1 (Apache-2.0 WITH LLVM-exception): The Cranelift Project Developers
-cranelift-codegen-shared 0.137.1 (Apache-2.0 WITH LLVM-exception): The Cranelift Project Developers
-cranelift-control 0.137.1 (Apache-2.0 WITH LLVM-exception): The Cranelift Project Developers
-cranelift-entity 0.137.1 (Apache-2.0 WITH LLVM-exception): The Cranelift Project Developers
-cranelift-frontend 0.137.1 (Apache-2.0 WITH LLVM-exception): The Cranelift Project Developers
-cranelift-isle 0.137.1 (Apache-2.0 WITH LLVM-exception): The Cranelift Project Developers
-cranelift-jit 0.137.1 (Apache-2.0 WITH LLVM-exception): The Cranelift Project Developers
-cranelift-module 0.137.1 (Apache-2.0 WITH LLVM-exception): The Cranelift Project Developers
-cranelift-native 0.137.1 (Apache-2.0 WITH LLVM-exception): The Cranelift Project Developers
-cranelift-srcgen 0.137.1 (Apache-2.0 WITH LLVM-exception): The Wasmtime Project Developers
+cfg-if 1.0.5 (MIT OR Apache-2.0): Alex Crichton <alex@alexcrichton.com>
+cranelift-assembler-x64 0.131.3 (Apache-2.0 WITH LLVM-exception): the cranelift-assembler-x64 developers
+cranelift-assembler-x64-meta 0.131.3 (Apache-2.0 WITH LLVM-exception): the cranelift-assembler-x64-meta developers
+cranelift-bforest 0.131.3 (Apache-2.0 WITH LLVM-exception): The Cranelift Project Developers
+cranelift-bitset 0.131.3 (Apache-2.0 WITH LLVM-exception): The Cranelift Project Developers
+cranelift-codegen 0.131.3 (Apache-2.0 WITH LLVM-exception): The Cranelift Project Developers
+cranelift-codegen-meta 0.131.3 (Apache-2.0 WITH LLVM-exception): The Cranelift Project Developers
+cranelift-codegen-shared 0.131.3 (Apache-2.0 WITH LLVM-exception): The Cranelift Project Developers
+cranelift-control 0.131.3 (Apache-2.0 WITH LLVM-exception): The Cranelift Project Developers
+cranelift-entity 0.131.3 (Apache-2.0 WITH LLVM-exception): The Cranelift Project Developers
+cranelift-frontend 0.131.3 (Apache-2.0 WITH LLVM-exception): The Cranelift Project Developers
+cranelift-isle 0.131.3 (Apache-2.0 WITH LLVM-exception): The Cranelift Project Developers
+cranelift-jit 0.131.3 (Apache-2.0 WITH LLVM-exception): The Cranelift Project Developers
+cranelift-module 0.131.3 (Apache-2.0 WITH LLVM-exception): The Cranelift Project Developers
+cranelift-native 0.131.3 (Apache-2.0 WITH LLVM-exception): The Cranelift Project Developers
+cranelift-srcgen 0.131.3 (Apache-2.0 WITH LLVM-exception): The Wasmtime Project Developers
 equivalent 1.0.3 (Apache-2.0 OR MIT): the equivalent developers
 fnv 1.0.7 (Apache-2.0 / MIT): Alex Crichton <alex@alexcrichton.com>
 foldhash 0.2.0 (Zlib): Orson Peters <orsonpeters@gmail.com>
@@ -34,9 +35,7 @@ libc 0.2.191 (MIT OR Apache-2.0): the libc developers
 libm 0.2.16 (MIT): Alex Crichton <alex@alexcrichton.com>, Amanieu d'Antras <amanieu@gmail.com>, Jorge Aparicio <japaricious@gmail.com>, Trevor Gross <tg@trevorgross.com>
 log 0.4.35 (MIT OR Apache-2.0): The Rust Project Developers
 mach2 0.4.3 (BSD-2-Clause OR MIT OR Apache-2.0): the mach2 developers
-mach2 0.6.0 (BSD-2-Clause OR MIT OR Apache-2.0): the mach2 developers
 memchr 2.8.3 (Unlicense OR MIT): Andrew Gallant <jamslam@gmail.com>, bluss
-memmap2 0.9.12 (MIT OR Apache-2.0): Dan Burkert <dan@danburkert.com>, Yevhenii Reizner <razrfalcon@gmail.com>, The Contributors
 proc-macro2 1.0.107 (MIT OR Apache-2.0): David Tolnay <dtolnay@gmail.com>, Alex Crichton <alex@alexcrichton.com>
 quote 1.0.47 (MIT OR Apache-2.0): David Tolnay <dtolnay@gmail.com>
 regalloc2 0.15.2 (Apache-2.0 WITH LLVM-exception): Chris Fallin <chris@cfallin.org>, Mozilla SpiderMonkey Developers
@@ -51,8 +50,8 @@ stable_deref_trait 1.2.1 (MIT OR Apache-2.0): Robert Grosse <n210241048576@gmail
 syn 3.0.10 (MIT OR Apache-2.0): David Tolnay <dtolnay@gmail.com>
 target-lexicon 0.13.6 (Apache-2.0 WITH LLVM-exception): Dan Gohman <sunfish@mozilla.com>
 unicode-ident 1.0.27 ((MIT OR Apache-2.0) AND Unicode-3.0): David Tolnay <dtolnay@gmail.com>
-wasmtime-internal-core 50.0.1 (Apache-2.0 WITH LLVM-exception): The Wasmtime Project Developers
-wasmtime-internal-jit-icache-coherence 50.0.1 (Apache-2.0 WITH LLVM-exception): The Wasmtime Project Developers
+wasmtime-internal-core 44.0.3 (Apache-2.0 WITH LLVM-exception): The Wasmtime Project Developers
+wasmtime-internal-jit-icache-coherence 44.0.3 (Apache-2.0 WITH LLVM-exception): The Wasmtime Project Developers
 windows-link 0.2.1 (MIT OR Apache-2.0): the windows-link developers
 windows-sys 0.52.0 (MIT OR Apache-2.0): Microsoft
 windows-sys 0.61.2 (MIT OR Apache-2.0): the windows-sys developers
