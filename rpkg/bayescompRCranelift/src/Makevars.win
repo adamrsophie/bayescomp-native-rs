@@ -1,17 +1,27 @@
+# Rust code is built offline from the crates vendored in rust/vendor.tar.xz,
+# with at most two jobs, and Cargo writes only inside the package directory.
 TARGET = x86_64-pc-windows-gnu
 TARGET_DIR = $(CURDIR)/rust/target
 LIBDIR = $(TARGET_DIR)/$(TARGET)/release
 STATLIB = $(LIBDIR)/libbcn_ffi.a
 PKG_LIBS = -L$(LIBDIR) -lbcn_ffi -lws2_32 -ladvapi32 -luserenv -lbcrypt -lntdll -lkernel32
+CARGO_DIR = $(CURDIR)/.cargo
 
 all: $(SHLIB) rust_clean
 
 $(SHLIB): $(STATLIB)
 
 $(STATLIB):
-	cargo build --release --locked --target=$(TARGET) --manifest-path=rust/Cargo.toml --target-dir "$(TARGET_DIR)" -p bcn-ffi --features cranelift
+	@if ! command -v cargo > /dev/null 2>&1; then \
+	  echo "Rust is required to build bayescompRCranelift: install rustc >= 1.85 and cargo with the x86_64-pc-windows-gnu target"; exit 1; fi
+	@rustc --version
+	@cargo --version
+	cd rust && tar -xJf vendor.tar.xz
+	mkdir -p "$(CARGO_DIR)"
+	printf '[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source.vendored-sources]\ndirectory = "%s"\n' "$(CURDIR)/rust/vendor" > "$(CARGO_DIR)/config.toml"
+	CARGO_HOME="$(CARGO_DIR)" cargo build -j 2 --offline --locked --release --target=$(TARGET) --manifest-path=rust/Cargo.toml --target-dir "$(TARGET_DIR)" -p bcn-ffi --features cranelift
 
 rust_clean: $(SHLIB)
-	rm -Rf "$(TARGET_DIR)"
+	rm -Rf "$(TARGET_DIR)" "$(CARGO_DIR)" rust/vendor
 
 .PHONY: all rust_clean

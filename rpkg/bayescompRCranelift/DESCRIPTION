@@ -1,20 +1,27 @@
 Package: bayescompRCranelift
 Type: Package
-Title: Cranelift Native Code Backend for 'bayescompR'
+Title: 'Cranelift' Native Code Backend for 'bayescompR'
 Version: 0.1.0
-Authors@R: person("Adam R", "Sophie", email = "adamrsophie@gmail.com", role = c("aut", "cre", "cph"))
+Authors@R: c(
+    person("Adam R", "Sophie", email = "adamrsophie@gmail.com", role = c("aut", "cre", "cph")),
+    person("Authors of the dependency Rust crates", role = c("ctb", "cph"),
+           comment = "see inst/AUTHORS"))
 Description: Compiles the typed intermediate representation of a 'bayescompR'
-    model to machine code with the Cranelift code generator and evaluates
-    the log density and its gradient natively. Registers the backend
-    "cranelift" with 'bayescompR'; the reference interpreter of the shared
-    native runtime is available as an engine for comparison.
+    model to machine code with the 'Cranelift' code generator and evaluates
+    the log density and its gradient natively, with reverse mode automatic
+    differentiation written in 'Rust'. Registers the backend "cranelift"
+    with 'bayescompR'; the reference interpreter of the shared native
+    runtime is available as a second engine for comparison.
 License: GPL-3
+Copyright: The bundled 'Rust' crates are listed with their authors and
+    licenses in inst/AUTHORS.
 URL: https://github.com/adamrsophie/bayescomp-native-rs
 BugReports: https://github.com/adamrsophie/bayescomp-native-rs/issues
 Depends: R (>= 4.2)
 Imports: bayescompR (>= 0.1.0)
 Suggests: testthat (>= 3.0.0)
-Remotes: adamrsophie/bayescompR
-SystemRequirements: Cargo (Rust's package manager), rustc >= 1.85
+SystemRequirements: Cargo (Rust's package manager), rustc >= 1.85, xz
 Config/testthat/edition: 3
 Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+Config/roxygen2/version: 8.1.1

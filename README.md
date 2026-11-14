@@ -19,7 +19,7 @@ computed each capability.
 | `crates/bcn-ffi` | C ABI linked into the R packages |
 | `rpkg/bayescompRCranelift` | R package registering the `"cranelift"` backend (Linux, macOS, Windows) |
 | `rpkg/bayescompRLLVM` | R package registering the `"llvm"` backend (Linux, macOS; needs LLVM 18, 20, 21 or 22) |
-| `tools/sync-rust.sh` | Copies the crates into both R packages so each builds on its own |
+| `tools/sync-rust.sh` | Copies the crates into both R packages so each builds on its own, and vendors the crates.io dependencies of bayescompRCranelift (`tools/vendor.py`) so it builds offline as CRAN requires |
 | `tests/crosscheck.R` | Compares the native engines with the R backend over all Jacobian and `propto` combinations |
 
 ## Install

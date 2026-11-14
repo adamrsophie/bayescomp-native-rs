@@ -1,3 +1,13 @@
+#' bayescompRCranelift: native log densities for bayescompR
+#'
+#' Loading the package registers the backend `"cranelift"`. Build a model
+#' with `bayescompR::bayescomp_model(code, data, backend = "cranelift",
+#' allow_fallback = TRUE)`: the log density and its gradient then run in
+#' machine code, while constraining, generated quantities and random numbers
+#' stay in R. `bayescompR::bayescomp_validate_backend()` compares the two.
+#' @keywords internal
+"_PACKAGE"
+
 #' Engine used by the cranelift backend
 #'
 #' `"jit"` (the default) compiles the model to machine code with Cranelift;
@@ -7,6 +17,12 @@
 #'
 #' @param engine `NULL` to query, or `"jit"` or `"interpreter"`.
 #' @return The engine in use (invisibly when setting).
+#' @examples
+#' cranelift_engine()
+#' m <- bayescompR::bayescomp_model(
+#'   "parameters { real mu; } model { mu ~ normal(0, 1); }",
+#'   backend = "cranelift", allow_fallback = TRUE)
+#' bayescompR::bayescomp_log_prob(m, 0.5)
 #' @export
 cranelift_engine <- function(engine = NULL) {
   if (is.null(engine)) return(getOption("bayescompRCranelift.engine", "jit"))
