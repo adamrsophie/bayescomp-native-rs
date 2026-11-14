@@ -9,8 +9,8 @@ all: $(SHLIB) rust_clean
 $(SHLIB): $(STATLIB)
 
 $(STATLIB):
-	PATH="$(PATH):$(HOME)/.cargo/bin" @SYSVAR@="@PREFIX@" cargo rustc --release --locked --manifest-path=rust/Cargo.toml --target-dir "$(TARGET_DIR)" -p bcn-ffi --features @FEATURE@ -- --print native-static-libs 2> "$(CURDIR)/cargo.log" || (cat "$(CURDIR)/cargo.log"; exit 1)
-	sed -n "s/.*native-static-libs: //p" "$(CURDIR)/cargo.log" | tail -n 1 > "$(LIBDIR)/native-libs.txt"
+	CARGO_TERM_COLOR=never PATH="$(PATH):$(HOME)/.cargo/bin" @SYSVAR@="@PREFIX@" cargo rustc --release --locked --manifest-path=rust/Cargo.toml --target-dir "$(TARGET_DIR)" -p bcn-ffi --features @FEATURE@ -- --print native-static-libs 2> "$(CURDIR)/cargo.log" || (cat "$(CURDIR)/cargo.log"; exit 1)
+	sed -n "s/.*native-static-libs: //p" "$(CURDIR)/cargo.log" | tail -n 1 | sed "s/\x1b\[[0-9;]*m//g" > "$(LIBDIR)/native-libs.txt"
 
 rust_clean: $(SHLIB)
 	rm -Rf "$(TARGET_DIR)" "$(CURDIR)/cargo.log"
