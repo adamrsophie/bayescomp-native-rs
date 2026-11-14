@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/bcn-core", "crates/bcn-cranelift", "crates/bcn-ffi"]
+members = ["crates/*"]
 
 [workspace.package]
 version = "0.1.0"

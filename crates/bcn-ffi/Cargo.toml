@@ -14,9 +14,15 @@ crate-type = ["staticlib", "rlib"]
 [features]
 default = []
 cranelift = ["dep:bcn-cranelift"]
+llvm = ["dep:bcn-llvm"]
+llvm18 = ["llvm", "bcn-llvm/llvm18"]
+llvm20 = ["llvm", "bcn-llvm/llvm20"]
+llvm21 = ["llvm", "bcn-llvm/llvm21"]
+llvm22 = ["llvm", "bcn-llvm/llvm22"]
 
 [dependencies]
 bcn-core = { path = "../bcn-core" }
 bcn-cranelift = { path = "../bcn-cranelift", optional = true }
+bcn-llvm = { path = "../bcn-llvm", optional = true }
 serde_json.workspace = true
 

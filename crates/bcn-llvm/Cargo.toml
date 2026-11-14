@@ -1,0 +1,23 @@
+[package]
+name = "bcn-llvm"
+description = "LLVM JIT backend for bayescompR: compiles the lowered statement tree to machine code"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+llvm18 = ["inkwell/llvm18-1"]
+llvm20 = ["inkwell/llvm20-1"]
+llvm21 = ["inkwell/llvm21-1"]
+llvm22 = ["inkwell/llvm22-1"]
+
+[dependencies]
+bcn-core = { path = "../bcn-core" }
+inkwell = { version = "0.11.0", default-features = false, features = ["target-x86", "target-aarch64"] }
+
+[dev-dependencies]
+serde_json.workspace = true

@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   rust:
     runs-on: ${{ matrix.os }}
@@ -15,12 +19,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --release --locked --workspace --examples
-      - run: cargo test --release --locked --workspace
+      - run: cargo build --release --locked -p bcn-core -p bcn-cranelift -p bcn-ffi --examples
+      - run: cargo test --release --locked -p bcn-core -p bcn-cranelift -p bcn-ffi
       - name: Vendored crates match the workspace
         if: runner.os != 'Windows'
         run: |
-          sh rpkg/bayescompRCranelift/tools/sync-rust.sh
+          sh tools/sync-rust.sh
           git diff --exit-code -- rpkg
 
   rpkg:
@@ -55,3 +59,43 @@ jobs:
           cargo build --release --locked -p bcn-core -p bcn-cranelift --examples
           Rscript tests/crosscheck.R "$RUNNER_TEMP/x1" target/release/examples/eval
           Rscript tests/crosscheck.R "$RUNNER_TEMP/x2" target/release/examples/eval_jit
+
+  llvm:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install LLVM 20
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            wget -q https://apt.llvm.org/llvm.sh && sudo bash llvm.sh 20
+            sudo apt-get install -y libpolly-20-dev libzstd-dev zlib1g-dev
+            echo "LLVM_CONFIG=/usr/lib/llvm-20/bin/llvm-config" >> "$GITHUB_ENV"
+          else
+            brew install llvm@20
+            echo "LLVM_CONFIG=$(brew --prefix llvm@20)/bin/llvm-config" >> "$GITHUB_ENV"
+          fi
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+      - name: Install bayescompR
+        run: |
+          install.packages(c("remotes", "testthat"))
+          remotes::install_github("adamrsophie/bayescompR", upgrade = "never", dependencies = TRUE)
+        shell: Rscript {0}
+      - name: Install bayescompRLLVM
+        run: R CMD INSTALL rpkg/bayescompRLLVM
+      - name: Package tests
+        working-directory: rpkg/bayescompRLLVM/tests
+        run: Rscript -e 'library(testthat); library(bayescompRLLVM); res <- test_dir("testthat", reporter = "summary", stop_on_failure = TRUE)'
+      - name: Cross check the LLVM JIT against the R backend
+        run: |
+          prefix=$("$LLVM_CONFIG" --prefix)
+          LLVM_SYS_201_PREFIX="$prefix" cargo build --release --locked -p bcn-llvm --features llvm20 --examples
+          Rscript tests/crosscheck.R "$RUNNER_TEMP/x3" target/release/examples/eval_llvm

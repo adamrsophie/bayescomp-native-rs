@@ -1,0 +1,22 @@
+Package: bayescompRLLVM
+Type: Package
+Title: LLVM Native Code Backend for 'bayescompR'
+Version: 0.1.0
+Authors@R: person("Adam R", "Sophie", email = "adamrsophie@gmail.com", role = c("aut", "cre", "cph"))
+Description: Compiles the typed intermediate representation of a 'bayescompR'
+    model to machine code with the LLVM compiler infrastructure and
+    evaluates the log density and its gradient natively. Registers the
+    backend "llvm" with 'bayescompR'; the reference interpreter of the shared
+    native runtime is available as an engine for comparison.
+License: GPL-3
+URL: https://github.com/adamrsophie/bayescomp-native-rs
+BugReports: https://github.com/adamrsophie/bayescomp-native-rs/issues
+Depends: R (>= 4.2)
+Imports: bayescompR (>= 0.1.0)
+Suggests: testthat (>= 3.0.0)
+Remotes: adamrsophie/bayescompR
+SystemRequirements: Cargo (Rust's package manager), rustc >= 1.85, LLVM 18, 20, 21 or 22
+    (development files, found through llvm-config or the LLVM_CONFIG variable); Linux or macOS
+OS_type: unix
+Config/testthat/edition: 3
+Encoding: UTF-8

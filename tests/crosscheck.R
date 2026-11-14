@@ -3,6 +3,7 @@
 suppressMessages(library(bayescompR))
 model_lpg <- bayescompR:::model_lpg
 S <- commandArgs(TRUE)[1]
+dir.create(S, recursive = TRUE, showWarnings = FALSE)
 bin <- commandArgs(TRUE)[2]
 models <- list(
   lin = list(code = "data { int N; vector[N] x; vector[N] y; } parameters { real a; real b; real<lower=0> s; } model { a ~ normal(0, 5); b ~ student_t(3, 0, 2); s ~ exponential(1); y ~ normal(a + b * x, s); }",

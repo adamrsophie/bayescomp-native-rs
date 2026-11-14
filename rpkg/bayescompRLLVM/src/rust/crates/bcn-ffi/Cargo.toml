@@ -1,0 +1,28 @@
+[package]
+name = "bcn-ffi"
+description = "C ABI of the bayescompR native backends, linked into the R packages"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[features]
+default = []
+cranelift = ["dep:bcn-cranelift"]
+llvm = ["dep:bcn-llvm"]
+llvm18 = ["llvm", "bcn-llvm/llvm18"]
+llvm20 = ["llvm", "bcn-llvm/llvm20"]
+llvm21 = ["llvm", "bcn-llvm/llvm21"]
+llvm22 = ["llvm", "bcn-llvm/llvm22"]
+
+[dependencies]
+bcn-core = { path = "../bcn-core" }
+bcn-cranelift = { path = "../bcn-cranelift", optional = true }
+bcn-llvm = { path = "../bcn-llvm", optional = true }
+serde_json.workspace = true
+

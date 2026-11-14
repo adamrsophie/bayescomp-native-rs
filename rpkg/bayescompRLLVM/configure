@@ -1,0 +1,29 @@
+#!/bin/sh
+# Find LLVM and write src/Makevars. Set LLVM_CONFIG to choose an LLVM.
+find_llvm() {
+  if [ -n "$LLVM_CONFIG" ]; then echo "$LLVM_CONFIG"; return; fi
+  for v in 22 21 20 18; do
+    for c in /opt/homebrew/opt/llvm@$v/bin/llvm-config /usr/local/opt/llvm@$v/bin/llvm-config \
+             /usr/lib/llvm-$v/bin/llvm-config "$(command -v llvm-config-$v 2>/dev/null)"; do
+      if [ -n "$c" ] && [ -x "$c" ]; then echo "$c"; return; fi
+    done
+  done
+  command -v llvm-config 2>/dev/null
+}
+cfg=$(find_llvm)
+if [ -z "$cfg" ] || [ ! -x "$cfg" ]; then
+  echo "ERROR: llvm-config not found. Install LLVM 18, 20, 21 or 22 or set LLVM_CONFIG." >&2
+  exit 1
+fi
+ver=$("$cfg" --version)
+major=${ver%%.*}
+case "$major" in
+  18) sys=LLVM_SYS_181_PREFIX ;;
+  20) sys=LLVM_SYS_201_PREFIX ;;
+  21) sys=LLVM_SYS_211_PREFIX ;;
+  22) sys=LLVM_SYS_221_PREFIX ;;
+  *) echo "ERROR: LLVM $ver is not supported (use 18, 20, 21 or 22)." >&2; exit 1 ;;
+esac
+prefix=$("$cfg" --prefix)
+echo "Using LLVM $ver at $prefix"
+sed -e "s|@FEATURE@|llvm$major|" -e "s|@SYSVAR@|$sys|" -e "s|@PREFIX@|$prefix|" src/Makevars.in > src/Makevars

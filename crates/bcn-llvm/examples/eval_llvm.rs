@@ -1,8 +1,8 @@
-//! Like `bcn-core`'s `eval`, through the Cranelift JIT. Exits with status 2
+//! Like `bcn-core`'s `eval`, through the LLVM JIT. Exits with status 2
 //! if any result is not bit identical to the reference interpreter.
 
 use bcn_core::{exec::Runtime, lower::lower};
-use bcn_cranelift::Compiled;
+use bcn_llvm::Compiled;
 
 fn main() {
     let a: Vec<String> = std::env::args().collect();

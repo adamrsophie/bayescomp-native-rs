@@ -15,12 +15,12 @@ computed each capability.
 |------|----------|
 | `crates/bcn-core` | IR lowering, reverse mode AD tape, math and distribution kernels, reference interpreter |
 | `crates/bcn-cranelift` | Cranelift JIT: compiles the statement tree to one machine code function |
+| `crates/bcn-llvm` | LLVM JIT (through inkwell), same design as the Cranelift backend |
 | `crates/bcn-ffi` | C ABI linked into the R packages |
-| `rpkg/bayescompRCranelift` | R package registering the `"cranelift"` backend |
+| `rpkg/bayescompRCranelift` | R package registering the `"cranelift"` backend (Linux, macOS, Windows) |
+| `rpkg/bayescompRLLVM` | R package registering the `"llvm"` backend (Linux, macOS; needs LLVM 18, 20, 21 or 22) |
+| `tools/sync-rust.sh` | Copies the crates into both R packages so each builds on its own |
 | `tests/crosscheck.R` | Compares the native engines with the R backend over all Jacobian and `propto` combinations |
-
-The LLVM backend (`bayescompRLLVM`) will share `bcn-core` and `bcn-ffi`; it
-is not released yet.
 
 ## Install
 
@@ -29,7 +29,12 @@ Needs Rust (`rustc` 1.85 or newer, with Cargo) and bayescompR.
 ```r
 remotes::install_github("adamrsophie/bayescompR")
 remotes::install_github("adamrsophie/bayescomp-native-rs", subdir = "rpkg/bayescompRCranelift")
+# LLVM: install its development files first (for example `brew install llvm@20`
+# or `apt install llvm-20-dev libpolly-20-dev`); set LLVM_CONFIG if needed
+remotes::install_github("adamrsophie/bayescomp-native-rs", subdir = "rpkg/bayescompRLLVM")
 ```
+
+The LLVM package does not build on Windows in this version.
 
 ## Use
 
@@ -44,7 +49,8 @@ fit <- bayescomp_sample(m)
 
 `allow_fallback = TRUE` is required because constraining, generated
 quantities and random numbers still run in R in this version.
-`cranelift_engine("interpreter")` switches to the reference interpreter.
+`cranelift_engine("interpreter")` (or `llvm_engine("interpreter")`)
+switches to the reference interpreter. `backend = "llvm"` works the same way.
 Programs that use features the native lowering does not cover yet (user
 defined functions, truncation, matrix division and a few others) are refused
 with `bayescomp_unsupported_error` when the model is built; use the R
@@ -52,8 +58,9 @@ backend for them.
 
 ## Correctness
 
-The JIT calls the same runtime as the interpreter for every leaf operation,
-so the two are bit identical; `eval_jit` checks this on every point. Both
+Both JITs call the same runtime as the interpreter for every leaf operation,
+so all three engines are bit identical; `eval_jit` and `eval_llvm` check
+this on every point. All of them
 agree with the R backend to a relative difference below 4e-14 on the
 cross check models, and raise the same error classes (reject, domain,
 shape, unsupported).
@@ -63,15 +70,17 @@ shape, unsupported).
 Gradient of a normal linear regression with N = 5000, on an Apple silicon
 laptop (milliseconds per evaluation):
 
-| Model | R backend | Interpreter | Cranelift JIT |
-|-------|-----------|-------------|---------------|
-| Vectorized likelihood | 0.56 | 0.23 | 0.23 |
-| Loop over observations | 939 | 2.8 | 2.7 |
+| Model | R backend | Interpreter | Cranelift JIT | LLVM JIT |
+|-------|-----------|-------------|---------------|----------|
+| Vectorized likelihood | 0.56 | 0.23 | 0.23 | 0.27 |
+| Loop over observations | 939 | 2.8 | 2.7 | 3.2 |
+
+Building the LLVM model takes about 0.2 s.
 
 NUTS with one chain of 500 warmup and 500 sampling iterations on the
 vectorized model takes 2.7 s with the R backend and 1.6 s with Cranelift;
-the rest of the time is the sampler, which runs in R. The JIT currently
-compiles only control flow, so it is no faster than the interpreter; the
+the rest of the time is the sampler, which runs in R. The JITs currently
+compile only control flow, so they are no faster than the interpreter; the
 gain over R comes from the native runtime. Fusing scalar arithmetic into
 machine code is the next step.
 

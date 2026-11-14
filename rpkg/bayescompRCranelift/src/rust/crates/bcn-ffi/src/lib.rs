@@ -10,12 +10,15 @@ use bcn_core::{exec::Runtime, lower::lower};
 
 pub const ENGINE_INTERPRETER: c_int = 0;
 pub const ENGINE_CRANELIFT: c_int = 1;
+pub const ENGINE_LLVM: c_int = 2;
 
 struct Handle {
     rt: Runtime,
     dim: usize,
     #[cfg(feature = "cranelift")]
     jit: Option<bcn_cranelift::Compiled>,
+    #[cfg(feature = "llvm")]
+    llvm: Option<bcn_llvm::Compiled>,
 }
 
 fn write_err(buf: *mut c_char, len: usize, msg: &str) {
@@ -41,20 +44,23 @@ fn compile(ir: *const c_char, data: *const c_char, dim: usize, engine: c_int) ->
     let ir: serde_json::Value = serde_json::from_str(&cstr(ir)?).map_err(|e| format!("E_INTERNAL: IR JSON: {e}"))?;
     let data: serde_json::Value = serde_json::from_str(&cstr(data)?).map_err(|e| format!("E_INTERNAL: data JSON: {e}"))?;
     let prog = lower(&ir, &data, dim)?;
-    match engine {
-        ENGINE_INTERPRETER => Ok(Handle {
-            rt: Runtime::new(prog),
-            dim,
-            #[cfg(feature = "cranelift")]
-            jit: None,
-        }),
+    let mut h = Handle {
+        rt: Runtime::new(prog),
+        dim,
         #[cfg(feature = "cranelift")]
-        ENGINE_CRANELIFT => {
-            let jit = bcn_cranelift::Compiled::new(&prog)?;
-            Ok(Handle { rt: Runtime::new(prog), dim, jit: Some(jit) })
-        }
-        _ => Err(format!("E_UNSUPPORTED: engine {engine} is not built into this library")),
+        jit: None,
+        #[cfg(feature = "llvm")]
+        llvm: None,
+    };
+    match engine {
+        ENGINE_INTERPRETER => {}
+        #[cfg(feature = "cranelift")]
+        ENGINE_CRANELIFT => h.jit = Some(bcn_cranelift::Compiled::new(&h.rt.prog)?),
+        #[cfg(feature = "llvm")]
+        ENGINE_LLVM => h.llvm = Some(bcn_llvm::Compiled::new(&h.rt.prog)?),
+        _ => return Err(format!("E_UNSUPPORTED: engine {engine} is not built into this library")),
     }
+    Ok(h)
 }
 
 /// Lower and compile a model. Returns null and fills `err` on failure.
@@ -90,6 +96,10 @@ pub extern "C" fn bcn_eval(h: *mut c_void, u: *const f64, n: usize, jacobian: c_
     let r = catch_unwind(AssertUnwindSafe(|| {
         #[cfg(feature = "cranelift")]
         if let Some(j) = &h.jit {
+            return j.eval(&mut h.rt, u, jacobian != 0, propto != 0, Some(g));
+        }
+        #[cfg(feature = "llvm")]
+        if let Some(j) = &h.llvm {
             return j.eval(&mut h.rt, u, jacobian != 0, propto != 0, Some(g));
         }
         h.rt.interpret(u, jacobian != 0, propto != 0, Some(g))
