@@ -2,7 +2,7 @@ TARGET_DIR = $(CURDIR)/rust/target
 LIBDIR = $(TARGET_DIR)/release
 STATLIB = $(LIBDIR)/libbcn_ffi.a
 # system libraries LLVM needs, reported by rustc when the static library is built
-PKG_LIBS = -L$(LIBDIR) -lbcn_ffi $(shell cat "$(LIBDIR)/native-libs.txt" 2>/dev/null)
+PKG_LIBS = -L$(LIBDIR) -lbcn_ffi @LDIRS@ $(shell cat "$(LIBDIR)/native-libs.txt" 2>/dev/null)
 
 all: $(SHLIB) rust_clean
 

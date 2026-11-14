@@ -71,16 +71,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install LLVM 20
+      - name: Install LLVM
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then
-            wget -q https://apt.llvm.org/llvm.sh && sudo bash llvm.sh 20
-            sudo apt-get install -y libpolly-20-dev libzstd-dev zlib1g-dev
-            echo "LLVM_CONFIG=/usr/lib/llvm-20/bin/llvm-config" >> "$GITHUB_ENV"
+            # the distribution's LLVM (static libraries need the Polly and compression dev files)
+            sudo apt-get update
+            sudo apt-get install -y llvm-dev libzstd-dev zlib1g-dev libxml2-dev libffi-dev libedit-dev
+            cfg=$(command -v llvm-config)
+            v=$("$cfg" --version | cut -d. -f1)
+            sudo apt-get install -y "libpolly-$v-dev" || true
           else
             brew install llvm@20
-            echo "LLVM_CONFIG=$(brew --prefix llvm@20)/bin/llvm-config" >> "$GITHUB_ENV"
+            cfg="$(brew --prefix llvm@20)/bin/llvm-config"
           fi
+          v=$("$cfg" --version | cut -d. -f1)
+          echo "LLVM_CONFIG=$cfg" >> "$GITHUB_ENV"
+          echo "LLVM_MAJOR=$v" >> "$GITHUB_ENV"
+          case "$v" in 18) s=181;; *) s=${v}1;; esac
+          echo "LLVM_SYS_${s}_PREFIX=$("$cfg" --prefix)" >> "$GITHUB_ENV"
       - uses: r-lib/actions/setup-r@v2
         with:
           use-public-rspm: true
@@ -96,6 +104,5 @@ jobs:
         run: Rscript -e 'library(testthat); library(bayescompRLLVM); res <- test_dir("testthat", reporter = "summary", stop_on_failure = TRUE)'
       - name: Cross check the LLVM JIT against the R backend
         run: |
-          prefix=$("$LLVM_CONFIG" --prefix)
-          LLVM_SYS_201_PREFIX="$prefix" cargo build --release --locked -p bcn-llvm --features llvm20 --examples
+          cargo build --release --locked -p bcn-llvm --features "llvm$LLVM_MAJOR" --examples
           Rscript tests/crosscheck.R "$RUNNER_TEMP/x3" target/release/examples/eval_llvm

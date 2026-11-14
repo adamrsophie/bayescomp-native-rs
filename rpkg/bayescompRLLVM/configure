@@ -25,5 +25,10 @@ case "$major" in
   *) echo "ERROR: LLVM $ver is not supported (use 18, 20, 21 or 22)." >&2; exit 1 ;;
 esac
 prefix=$("$cfg" --prefix)
+# search paths for the system libraries LLVM links (zstd, xml2, ...)
+ldirs="-L$("$cfg" --libdir)"
+for d in /opt/homebrew/lib /usr/local/lib; do
+  if [ -d "$d" ]; then ldirs="$ldirs -L$d"; fi
+done
 echo "Using LLVM $ver at $prefix"
-sed -e "s|@FEATURE@|llvm$major|" -e "s|@SYSVAR@|$sys|" -e "s|@PREFIX@|$prefix|" src/Makevars.in > src/Makevars
+sed -e "s|@FEATURE@|llvm$major|" -e "s|@SYSVAR@|$sys|" -e "s|@PREFIX@|$prefix|" -e "s|@LDIRS@|$ldirs|" src/Makevars.in > src/Makevars

@@ -38,6 +38,9 @@ for (nm in names(models)) {
   if (nm == "ctl") { U <- rbind(U, U); U[6:10, 1] <- 2.5; U[8:10, 2] <- 4 }
   f_u <- file.path(S, paste0(nm, "_u.txt")); write.table(U, f_u, row.names = FALSE, col.names = FALSE)
   out <- system2(bin, c(f_ir, f_d, m$dim, f_u), stdout = TRUE)
+  # the JIT binaries exit with status 2 when they differ from the interpreter
+  st <- attr(out, "status")
+  if (!is.null(st) && st != 0) { cat(nm, ": engine exited with status ", st, "\n", sep = ""); bad <- TRUE }
   if (startsWith(out[1], "LOWER")) { bad <- TRUE; cat(nm, out[1], "\n"); next }
   combos <- list(c(TRUE, FALSE), c(FALSE, FALSE), c(TRUE, TRUE), c(FALSE, TRUE))
   worst <- 0; k <- 0; nerr <- 0

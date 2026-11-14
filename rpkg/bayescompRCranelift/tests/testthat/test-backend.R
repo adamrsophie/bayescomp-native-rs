@@ -36,3 +36,11 @@ test_that("sampling with the native backend runs", {
   f <- bayescompR::bayescomp_sample(m, chains = 1, iter_warmup = 100, iter_sampling = 100, seed = 1, refresh = 0)
   expect_equal(dim(f$draws)[1:2], c(100L, 1L))
 })
+
+test_that("a model copied to another session recompiles its native code", {
+  m <- bayescompR::bayescomp_model(models$lin$code, data = models$lin$data, backend = "cranelift", allow_fallback = TRUE)
+  m2 <- unserialize(serialize(m, NULL))
+  u <- c(0.3, -0.2, 0.1)
+  expect_identical(bayescompR::bayescomp_log_prob(m2, u), bayescompR::bayescomp_log_prob(m, u))
+  expect_identical(bayescompR::bayescomp_grad_log_prob(m2, u), bayescompR::bayescomp_grad_log_prob(m, u))
+})
