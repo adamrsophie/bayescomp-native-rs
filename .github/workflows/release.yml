@@ -1,0 +1,219 @@
+name: release
+
+# Builds the shared libraries that bayescompR::bayescomp_install_backend()
+# downloads, one per backend, operating system and architecture, and attaches
+# them with their checksums to the GitHub release of the tag.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  cranelift:
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # manylinux images have an old glibc (2.28), so the library loads on older distributions
+          - { platform: linux-x86_64, runner: ubuntu-latest, container: 'quay.io/pypa/manylinux_2_28_x86_64', target: x86_64-unknown-linux-gnu, file: libbcn_ffi.so, ext: .so }
+          - { platform: linux-aarch64, runner: ubuntu-24.04-arm, container: 'quay.io/pypa/manylinux_2_28_aarch64', target: aarch64-unknown-linux-gnu, file: libbcn_ffi.so, ext: .so }
+          - { platform: darwin-aarch64, runner: macos-latest, target: aarch64-apple-darwin, file: libbcn_ffi.dylib, ext: .so }
+          - { platform: darwin-x86_64, runner: macos-latest, target: x86_64-apple-darwin, file: libbcn_ffi.dylib, ext: .so }
+          # the C runtime is linked statically, so the DLL needs no Visual C++ redistributable
+          - { platform: windows-x86_64, runner: windows-latest, target: x86_64-pc-windows-msvc, file: bcn_ffi.dll, ext: .dll, rustflags: '-C target-feature=+crt-static' }
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+      RUSTFLAGS: ${{ matrix.rustflags }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: |
+          if ! command -v rustup > /dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+      - run: |
+          rustup target add ${{ matrix.target }}
+          cargo build --release --locked -p bcn-ffi --features cranelift --target ${{ matrix.target }} \
+            --config 'profile.release.codegen-units=1' --config 'profile.release.lto="thin"'
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/${{ matrix.file }}" "dist/bcn-cranelift-${{ matrix.platform }}${{ matrix.ext }}"
+      - name: Dynamic dependencies
+        run: |
+          f=dist/bcn-cranelift-${{ matrix.platform }}${{ matrix.ext }}
+          case "${{ runner.os }}" in
+            Linux) ldd "$f" || true ;;
+            macOS) otool -L "$f" ;;
+            Windows) ls -la "$f" ;;
+          esac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cranelift-${{ matrix.platform }}
+          path: dist/*
+
+  # LLVM is linked statically, so users need no LLVM installation. Linux
+  # builds on Ubuntu 22.04 (glibc 2.35) and needs zlib, zstd and libxml2 at
+  # run time; macOS links zstd statically and uses the system zlib and libxml2.
+  llvm:
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux-x86_64, runner: ubuntu-22.04, target: x86_64-unknown-linux-gnu, file: libbcn_ffi.so }
+          - { platform: darwin-aarch64, runner: macos-latest, target: aarch64-apple-darwin, file: libbcn_ffi.dylib }
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install LLVM 20
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            wget -q https://apt.llvm.org/llvm.sh
+            sudo bash llvm.sh 20
+            sudo apt-get install -y llvm-20-dev libpolly-20-dev libzstd-dev zlib1g-dev libxml2-dev
+            cfg=/usr/lib/llvm-20/bin/llvm-config
+          else
+            brew install llvm@20 zstd
+            cfg="$(brew --prefix llvm@20)/bin/llvm-config"
+            # a directory with only the static zstd, searched first, so the library does not need Homebrew
+            mkdir -p "$RUNNER_TEMP/static"
+            cp "$(brew --prefix zstd)/lib/libzstd.a" "$RUNNER_TEMP/static/"
+            echo "RUSTFLAGS=-L native=$RUNNER_TEMP/static" >> "$GITHUB_ENV"
+          fi
+          echo "LLVM_SYS_201_PREFIX=$("$cfg" --prefix)" >> "$GITHUB_ENV"
+      - run: |
+          cargo build --release --locked -p bcn-ffi --features llvm20 --target ${{ matrix.target }} \
+            --config 'profile.release.codegen-units=1' --config 'profile.release.lto="thin"'
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/${{ matrix.file }}" "dist/bcn-llvm-${{ matrix.platform }}.so"
+      - name: Dynamic dependencies
+        run: |
+          f=dist/bcn-llvm-${{ matrix.platform }}.so
+          ls -la "$f"
+          if [ "$RUNNER_OS" = "Linux" ]; then ldd "$f"; else otool -L "$f"; ! otool -L "$f" | grep -q -e homebrew -e /usr/local; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: llvm-${{ matrix.platform }}
+          path: dist/*
+
+  test:
+    needs: cranelift
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, platform: linux-x86_64, ext: .so }
+          - { os: ubuntu-24.04-arm, platform: linux-aarch64, ext: .so }
+          - { os: macos-latest, platform: darwin-aarch64, ext: .so }
+          - { os: windows-latest, platform: windows-x86_64, ext: .dll }
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: cranelift-${{ matrix.platform }}
+          path: dist
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+      - name: Install bayescompR
+        run: |
+          install.packages("remotes")
+          remotes::install_github("adamrsophie/bayescompR", upgrade = "never", dependencies = TRUE)
+        shell: Rscript {0}
+      - name: Load the library and compare it with the R backend
+        run: |
+          library(bayescompR)
+          Sys.setenv(R_USER_DATA_DIR = tempfile())
+          bayescomp_install_backend("cranelift", path = "dist/bcn-cranelift-${{ matrix.platform }}${{ matrix.ext }}")
+          code <- "data { int N; vector[N] y; } parameters { real mu; real<lower=0> s; }
+                   model { mu ~ normal(0, 5); s ~ exponential(1); y ~ normal(mu, s); }"
+          m <- bayescomp_model(code, data = list(N = 20, y = seq(-1, 2, length.out = 20)),
+                               backend = "cranelift", allow_fallback = TRUE)
+          v <- bayescomp_validate_backend(m)
+          print(v)
+          stopifnot(max(v$lp_rel) < 1e-8, max(v$grad_rel) < 1e-8)
+          fit <- bayescomp_sample(m, chains = 2, iter_warmup = 200, iter_sampling = 200, seed = 1, refresh = 0)
+          print(summary(fit))
+        shell: Rscript {0}
+
+  test-llvm:
+    needs: llvm
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, platform: linux-x86_64 }
+          - { os: macos-latest, platform: darwin-aarch64 }
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: llvm-${{ matrix.platform }}
+          path: dist
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+      - name: Install bayescompR
+        run: |
+          install.packages("remotes")
+          remotes::install_github("adamrsophie/bayescompR", upgrade = "never", dependencies = TRUE)
+        shell: Rscript {0}
+      - name: Load the library and compare it with the R backend
+        run: |
+          library(bayescompR)
+          Sys.setenv(R_USER_DATA_DIR = tempfile())
+          bayescomp_install_backend("llvm", path = "dist/bcn-llvm-${{ matrix.platform }}.so")
+          code <- "data { int N; vector[N] y; } parameters { real mu; real<lower=0> s; }
+                   model { mu ~ normal(0, 5); s ~ exponential(1); y ~ normal(mu, s); }"
+          m <- bayescomp_model(code, data = list(N = 20, y = seq(-1, 2, length.out = 20)),
+                               backend = "llvm", allow_fallback = TRUE)
+          v <- bayescomp_validate_backend(m)
+          print(v)
+          stopifnot(max(v$lp_rel) < 1e-8, max(v$grad_rel) < 1e-8)
+        shell: Rscript {0}
+
+  publish:
+    # the LLVM libraries are attached when they built and passed their test
+    needs: [cranelift, test, llvm, test-llvm]
+    if: always() && startsWith(github.ref, 'refs/tags/') && needs.test.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: cranelift-*
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        if: needs.test-llvm.result == 'success'
+        with:
+          path: dist
+          pattern: llvm-*
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: |
+          sha256sum bcn-* > SHA256SUMS
+          md5sum bcn-* > MD5SUMS
+          cat SHA256SUMS MD5SUMS
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" \
+            --notes "Prebuilt native backends for bayescompR. Install them with bayescompR::bayescomp_install_backend()." \
+            || gh release upload "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --clobber

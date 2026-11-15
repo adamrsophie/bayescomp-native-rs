@@ -15,6 +15,14 @@ copy() { # package, crates...
     cp -R "$root/crates/$c" "$dst/crates/$c"
     rm -rf "$dst/crates/$c/target" "$dst/crates/$c/examples"
   done
+  # the R packages link the static library; the shared one is for bayescompR's downloads
+  if [ -f "$dst/crates/bcn-ffi/Cargo.toml" ]; then
+    python3 - "$dst/crates/bcn-ffi/Cargo.toml" <<'PY'
+import sys
+p = sys.argv[1]; s = open(p).read()
+open(p, "w").write(s.replace('"staticlib", "cdylib", "rlib"', '"staticlib", "rlib"'))
+PY
+  fi
   cp "$root/Cargo.lock" "$dst/Cargo.lock"
   cp "$root/Cargo.toml" "$dst/Cargo.toml"
   printf "$profile" >> "$dst/Cargo.toml"

@@ -9,7 +9,7 @@ authors.workspace = true
 repository.workspace = true
 
 [lib]
-crate-type = ["staticlib", "rlib"]
+crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
 default = []
