@@ -21,7 +21,7 @@ defaults:
 env:
   RUST_TOOLCHAIN: '1.98.1'
   # the bayescompR revision the libraries are tested with
-  BAYESCOMPR_REF: '7489dd8c37db7e05f790e3037d493306fd5afa72'
+  BAYESCOMPR_REF: '416b87cf761e4a8311240f4fe8cc59263a5a91b9'
 
 jobs:
   cranelift:
@@ -253,8 +253,7 @@ jobs:
         working-directory: dist
         run: |
           sha256sum bcn-* > SHA256SUMS
-          md5sum bcn-* > MD5SUMS
-          cat SHA256SUMS MD5SUMS
+          cat SHA256SUMS
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
