@@ -21,7 +21,7 @@ defaults:
 env:
   RUST_TOOLCHAIN: '1.98.1'
   # the bayescompR revision the libraries are tested with
-  BAYESCOMPR_REF: '416b87cf761e4a8311240f4fe8cc59263a5a91b9'
+  BAYESCOMPR_REF: '8aad79070b254f75c1e19faa28809f86c4cd3867'
 
 jobs:
   cranelift:
@@ -87,7 +87,8 @@ jobs:
   # LLVM is linked statically (force-static), so users need no LLVM
   # installation. The Linux library is built on Ubuntu 22.04 and needs glibc
   # 2.35 or newer, libstdc++, zlib, zstd, libffi and libxml2 (libxml2.so.2) at
-  # run time. The macOS library links only system libraries; it is built and
+  # run time; distributions with libxml2 2.14 or newer (Ubuntu 26.04) lack
+  # libxml2.so.2. The macOS library links only system libraries; it is built and
   # tested on macOS 15.
   llvm:
     runs-on: ${{ matrix.runner }}
@@ -205,7 +206,7 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-22.04, platform: linux-x86_64 }
-          - { os: ubuntu-latest, platform: linux-x86_64 }
+          - { os: ubuntu-24.04, platform: linux-x86_64 }
           - { os: macos-15, platform: darwin-aarch64 }
           - { os: macos-latest, platform: darwin-aarch64 }
     env:
@@ -263,7 +264,8 @@ jobs:
 
           Requirements: the Cranelift libraries need glibc 2.28 or newer on Linux and macOS 11 or newer.
           The LLVM libraries link LLVM statically; on Linux they need glibc 2.35 or newer, libstdc++, zlib,
-          zstd, libffi and libxml2 (libxml2.so.2); on macOS they are built and tested on macOS 15 (Apple silicon).
+          zstd, libffi and libxml2 (libxml2.so.2, missing on distributions with libxml2 2.14 or newer such as
+          Ubuntu 26.04, where the Cranelift backend works); on macOS they are built and tested on macOS 15 (Apple silicon).
           EOF
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --notes-file notes.md
 
