@@ -105,6 +105,18 @@ impl<'c> Em<'c> {
         Ok(self.b.build_load(self.cx.i64_type(), self.slot, "q").map_err(be)?.into_int_value())
     }
 
+    /// A loop counter in the entry block: an alloca inside the loop body would
+    /// grow the stack on every iteration of an enclosing loop.
+    fn entry_alloca(&self) -> R<inkwell::values::PointerValue<'c>> {
+        let eb = self.cx.create_builder();
+        let entry = self.f.get_first_basic_block().ok_or("E_INTERNAL: function without an entry block")?;
+        match entry.get_first_instruction() {
+            Some(i) => eb.position_before(&i),
+            None => eb.position_at_end(entry),
+        }
+        eb.build_alloca(self.cx.i64_type(), "i").map_err(be)
+    }
+
     fn jump(&self, to: BasicBlock<'c>) -> R<()> {
         self.b.build_unconditional_branch(to).map_err(be)?;
         Ok(())
@@ -122,7 +134,7 @@ impl<'c> Em<'c> {
             Stmt::For { var, lo, hi, body } => {
                 let l = self.query(rt_get_int as *const () as usize, *lo)?;
                 let h = self.query(rt_get_int as *const () as usize, *hi)?;
-                let iv = self.b.build_alloca(i64t, "i").map_err(be)?;
+                let iv = self.entry_alloca()?;
                 self.b.build_store(iv, l).map_err(be)?;
                 let head = self.cx.append_basic_block(self.f, "for_head");
                 let bodyb = self.cx.append_basic_block(self.f, "for_body");
@@ -146,7 +158,7 @@ impl<'c> Em<'c> {
             }
             Stmt::ForEach { var, container, body } => {
                 let n = self.query(rt_iter_len as *const () as usize, *container)?;
-                let iv = self.b.build_alloca(i64t, "i").map_err(be)?;
+                let iv = self.entry_alloca()?;
                 self.b.build_store(iv, i64t.const_zero()).map_err(be)?;
                 let head = self.cx.append_basic_block(self.f, "each_head");
                 let bodyb = self.cx.append_basic_block(self.f, "each_body");

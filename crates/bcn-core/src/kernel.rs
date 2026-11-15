@@ -144,9 +144,11 @@ pub enum OpKind {
     GetTarget,
     /// log density: distribution name, `lupdf` style (drops constants when
     /// the program runs with propto), discrete
-    Lpdf { dist: String, lu: bool, discrete: bool },
+    /// `keep[k]`: argument k is not data only, so its terms stay under propto
+    /// even when its value happens to be constant (as in Stan, which decides
+    /// from the static type)
+    Lpdf { dist: String, lu: bool, discrete: bool, keep: Vec<bool> },
     Index(Vec<IdxKind>),
-    VecLit,
     RowVecLit,
     ArrLit,
     Transpose,

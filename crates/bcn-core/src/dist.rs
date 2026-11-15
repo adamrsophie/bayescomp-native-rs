@@ -24,7 +24,7 @@ struct Args {
 }
 
 impl Args {
-    fn new(name: &str, args: &[&Val]) -> R<Args> {
+    fn new(name: &str, args: &[&Val], keep: &[bool]) -> R<Args> {
         let x: Vec<Vec<S>> = args.iter().map(|a| a.flat()).collect();
         let mut n = 1usize;
         let mut any_container = false;
@@ -39,7 +39,7 @@ impl Args {
                 }
             }
         }
-        let c = args.iter().map(|a| a.is_const()).collect();
+        let c = args.iter().enumerate().map(|(k, a)| a.is_const() && !keep.get(k).copied().unwrap_or(false)).collect();
         Ok(Args { x, n, c })
     }
     fn get(&self, k: usize, i: usize) -> f64 {
@@ -79,6 +79,81 @@ impl Partials {
     }
 }
 
+#[derive(Clone, Copy)]
+enum Chk {
+    NotNan,
+    Finite,
+    PosFin,
+    Nonneg,
+    Unit,
+    Int01,
+}
+
+/// Argument checks of each distribution, in the R backend's order. They run
+/// over every element before anything else, so an empty variate does not
+/// hide invalid parameters.
+fn arg_checks(dist: &str) -> &'static [(usize, Chk, &'static str)] {
+    use Chk::*;
+    const RV: &str = "Random variable";
+    const LOC: &str = "Location parameter";
+    const SC: &str = "Scale parameter";
+    match dist {
+        "normal" | "cauchy" => &[(0, NotNan, RV), (1, Finite, LOC), (2, PosFin, SC)],
+        "std_normal" => &[(0, NotNan, RV)],
+        "student_t" => &[(0, NotNan, RV), (1, PosFin, "Degrees of freedom parameter"), (2, Finite, LOC), (3, PosFin, SC)],
+        "double_exponential" | "logistic" => &[(0, Finite, RV), (1, Finite, LOC), (2, PosFin, SC)],
+        "exponential" => &[(0, Nonneg, RV), (1, PosFin, "Inverse scale parameter")],
+        "gamma" => &[(0, NotNan, RV), (1, PosFin, "Shape parameter"), (2, PosFin, "Inverse scale parameter")],
+        "inv_gamma" => &[(0, NotNan, RV), (1, PosFin, "Shape parameter"), (2, PosFin, SC)],
+        "lognormal" => &[(0, Nonneg, RV), (1, Finite, LOC), (2, PosFin, SC)],
+        "beta" => &[(1, PosFin, "First shape parameter"), (2, PosFin, "Second shape parameter"), (0, Unit, RV)],
+        "uniform" => &[(0, NotNan, RV), (1, Finite, "Lower bound parameter"), (2, Finite, "Upper bound parameter")],
+        "weibull" => &[(0, Finite, RV), (1, PosFin, "Shape parameter"), (2, PosFin, SC)],
+        "chi_square" => &[(0, Nonneg, RV), (1, PosFin, "Degrees of freedom parameter")],
+        "bernoulli" => &[(0, Int01, "n"), (1, Unit, "Probability parameter")],
+        "bernoulli_logit" => &[(0, Int01, "n"), (1, NotNan, "Logit transformed probability parameter")],
+        "binomial" => &[(1, Nonneg, "Population size parameter"), (2, Unit, "Probability parameter")],
+        "binomial_logit" => &[(2, Finite, "Probability parameter")],
+        "poisson" => &[(0, Nonneg, RV), (1, Nonneg, "Rate parameter"), (1, Finite, "Rate parameter")],
+        "poisson_log" => &[(0, Nonneg, RV), (1, NotNan, "Log rate parameter")],
+        "neg_binomial_2" => &[(0, Nonneg, "Failures variable"), (1, PosFin, LOC), (2, PosFin, "Precision parameter")],
+        "neg_binomial_2_log" => &[(0, Nonneg, "Failures variable"), (1, Finite, "Log location parameter"), (2, PosFin, "Precision parameter")],
+        _ => &[],
+    }
+}
+
+fn check_args(dist: &str, f: &str, a: &Args) -> R<()> {
+    for &(k, c, what) in arg_checks(dist) {
+        let Some(xs) = a.x.get(k) else { continue };
+        for s in xs {
+            let v = s.v;
+            let ok = match c {
+                Chk::NotNan => !v.is_nan(),
+                Chk::Finite => v.is_finite(),
+                Chk::PosFin => v > 0.0 && v.is_finite(),
+                Chk::Nonneg => v >= 0.0,
+                Chk::Unit | Chk::Int01 => (0.0..=1.0).contains(&v),
+            };
+            if !ok {
+                let need = match c {
+                    Chk::NotNan => "must not be nan",
+                    Chk::Finite => "must be finite",
+                    Chk::PosFin => "must be positive and finite",
+                    Chk::Nonneg => "must be nonnegative",
+                    Chk::Unit | Chk::Int01 => "must be in the interval [0, 1]",
+                };
+                return Err(format!("E_DOMAIN: {f}: {what} is {v}, but {need}"));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// x * log(y) with 0 * log(0) = 0, and its partials in x and y.
+fn lmultiply(x: f64, y: f64) -> (f64, f64, f64) {
+    if x == 0.0 && y == 0.0 { (0.0, 0.0, 0.0) } else { (x * y.ln(), y.ln(), x / y) }
+}
+
 fn positive(name: &str, what: &str, v: f64) -> R<()> {
     if !(v > 0.0) || !v.is_finite() {
         return Err(format!("E_DOMAIN: {name}: {what} is {v}, but must be positive finite!"));
@@ -95,11 +170,12 @@ fn not_nan(name: &str, what: &str, v: f64) -> R<()> {
 
 /// Log density of `dist` (name without suffix) at `args` (the variate
 /// first).
-pub fn lpdf(t: &mut Tape, dist: &str, args: &[&Val], propto: bool) -> R<S> {
+pub fn lpdf(t: &mut Tape, dist: &str, args: &[&Val], keep: &[bool], propto: bool) -> R<S> {
     let f = format!("{dist}_lpdf");
     let f = f.as_str();
-    let a = Args::new(f, args)?;
+    let a = Args::new(f, args, keep)?;
     let n = a.n;
+    check_args(dist, f, &a)?;
     if a.x.iter().any(|v| v.is_empty()) {
         return Ok(S::c(0.0));
     }
@@ -213,10 +289,6 @@ pub fn lpdf(t: &mut Tape, dist: &str, args: &[&Val], propto: bool) -> R<S> {
             let (i_b, i_q) = (a.inc(propto, &[1]), a.inc(propto, &[0, 1]));
             for i in 0..n {
                 let (y, b) = (a.get(0, i), a.get(1, i));
-                positive(f, "Inverse scale parameter", b)?;
-                if y < 0.0 {
-                    return Ok(S::c(f64::NEG_INFINITY));
-                }
                 if i_b { lp += b.ln() }
                 if i_q { lp -= b * y }
                 p.add(0, i, -b);
@@ -236,9 +308,9 @@ pub fn lpdf(t: &mut Tape, dist: &str, args: &[&Val], propto: bool) -> R<S> {
                 let ly = y.ln();
                 if i_a { lp -= lgamma(al) }
                 if i_ab { lp += al * b.ln() }
-                if i_ya { lp += (al - 1.0) * ly }
+                if i_ya { lp += zmul(al - 1.0, ly) }
                 if i_yb { lp -= b * y }
-                p.add(0, i, (al - 1.0) / y - b);
+                p.add(0, i, zmul(al - 1.0, 1.0 / y) - b);
                 p.add(1, i, -digamma(al) + b.ln() + ly);
                 p.add(2, i, al / b - y);
             }
@@ -265,7 +337,8 @@ pub fn lpdf(t: &mut Tape, dist: &str, args: &[&Val], propto: bool) -> R<S> {
         }
         "lognormal" => {
             need!(2);
-            let (i_c, i_s, i_y, i_q) = (a.inc(propto, &[]), a.inc(propto, &[2]), a.inc(propto, &[0]), a.inc(propto, &[0, 1, 2]));
+            // Stan Math keeps the constant whenever any argument is a parameter
+            let (i_c, i_s, i_y, i_q) = (a.inc(propto, &[0, 1, 2]), a.inc(propto, &[2]), a.inc(propto, &[0]), a.inc(propto, &[0, 1, 2]));
             for i in 0..n {
                 let (y, mu, s) = (a.get(0, i), a.get(1, i), a.get(2, i));
                 positive(f, "Scale parameter", s)?;
@@ -333,12 +406,13 @@ pub fn lpdf(t: &mut Tape, dist: &str, args: &[&Val], propto: bool) -> R<S> {
                     return Ok(S::c(f64::NEG_INFINITY));
                 }
                 let w = (y / s).powf(al);
+                let (lm, lm_x, lm_y) = lmultiply(al - 1.0, y);
                 if i_a { lp += al.ln() }
-                if i_ya { lp += (al - 1.0) * y.ln() }
+                if i_ya { lp += lm }
                 if i_as { lp -= al * s.ln() }
                 if i_q { lp -= w }
-                p.add(0, i, (al - 1.0) / y - al * w / y);
-                p.add(1, i, 1.0 / al + y.ln() - s.ln() - w * (y / s).ln());
+                p.add(0, i, lm_y - al * (y / s).powf(al - 1.0) / s);
+                p.add(1, i, 1.0 / al + lm_x - s.ln() - if w == 0.0 { 0.0 } else { w * (y / s).ln() });
                 p.add(2, i, -al / s + al * w / s);
             }
         }
@@ -352,10 +426,11 @@ pub fn lpdf(t: &mut Tape, dist: &str, args: &[&Val], propto: bool) -> R<S> {
                     return Ok(S::c(f64::NEG_INFINITY));
                 }
                 if i_nu { lp -= lgamma(nu / 2.0) + nu / 2.0 * std::f64::consts::LN_2 }
-                if i_ynu { lp += (nu / 2.0 - 1.0) * y.ln() }
+                let (lm, lm_x, lm_y) = lmultiply(nu / 2.0 - 1.0, y);
+                if i_ynu { lp += lm }
                 if i_y { lp -= y / 2.0 }
-                p.add(0, i, (nu / 2.0 - 1.0) / y - 0.5);
-                p.add(1, i, -0.5 * digamma(nu / 2.0) - 0.5 * std::f64::consts::LN_2 + 0.5 * y.ln());
+                p.add(0, i, lm_y - 0.5);
+                p.add(1, i, -0.5 * digamma(nu / 2.0) - 0.5 * std::f64::consts::LN_2 + 0.5 * lm_x);
             }
         }
         _ => return Err(format!("E_UNSUPPORTED: distribution '{dist}' is not supported by the native backend")),
@@ -368,13 +443,14 @@ fn int_arg(name: &str, v: &Val) -> R<Vec<i64>> {
 }
 
 /// Log probability mass of `dist` at integer outcomes `args[0]`.
-pub fn lpmf(t: &mut Tape, dist: &str, args: &[&Val], propto: bool) -> R<S> {
+pub fn lpmf(t: &mut Tape, dist: &str, args: &[&Val], keep: &[bool], propto: bool) -> R<S> {
     let f = format!("{dist}_lpmf");
     let f = f.as_str();
     let nn_all = int_arg(f, args[0])?;
     // discrete trials (binomial) are integer arguments too
-    let a = Args::new(f, args)?;
+    let a = Args::new(f, args, keep)?;
     let n = a.n;
+    check_args(dist, f, &a)?;
     if a.x.iter().any(|v| v.is_empty()) {
         return Ok(S::c(0.0));
     }
@@ -473,22 +549,25 @@ pub fn lpmf(t: &mut Tape, dist: &str, args: &[&Val], propto: bool) -> R<S> {
             for i in 0..n {
                 let (k, m, ph) = (ni(i), a.get(1, i), a.get(2, i));
                 positive(f, "Precision parameter", ph)?;
-                if i_phi { lp += lgamma(k + ph) - lgamma(ph) }
+                // lgamma(k + phi) - lgamma(phi) = lgamma(k) - lbeta(k, phi), stable for large phi
+                if i_phi && k > 0.0 { lp += lgamma(k) - lbeta(k, ph) }
                 if i_c { lp -= lgamma(k + 1.0) }
+                let dratio = if k <= 100.0 { (0..k as i64).map(|j| 1.0 / (ph + j as f64)).sum() } else { digamma(k + ph) - digamma(ph) };
                 if dist == "neg_binomial_2" {
-                    positive(f, "Location parameter", m)?;
                     let lmp = (m + ph).ln();
-                    if i_mp { lp += zmul(k, m.ln()) - k * lmp + ph * (ph.ln() - lmp) }
+                    let l1 = (m / ph).ln_1p();
+                    if i_mp { lp += zmul(k, m.ln()) - k * lmp - ph * l1 }
                     p.add(1, i, zmul(k, 1.0 / m) - (k + ph) / (m + ph));
-                    p.add(2, i, digamma(k + ph) - digamma(ph) + ph.ln() - lmp + 1.0 - (k + ph) / (m + ph));
+                    p.add(2, i, dratio - l1 + (m - k) / (m + ph));
                 } else {
                     let lphi = ph.ln();
                     let mx = m.max(lphi);
                     let lse = mx + ((m - mx).exp() + (lphi - mx).exp()).ln();
-                    if i_mp { lp += k * (m - lse) + ph * (lphi - lse) }
+                    let l1 = (m - lphi).exp().ln_1p();
+                    if i_mp { lp += k * (m - lse) - ph * l1 }
                     let w = (m - lse).exp(); // mu / (mu + phi)
                     p.add(1, i, k - (k + ph) * w);
-                    p.add(2, i, digamma(k + ph) - digamma(ph) + lphi - lse + 1.0 - (k + ph) / ph * (1.0 - w));
+                    p.add(2, i, dratio - l1 + w - k / ph * (1.0 - w));
                 }
             }
         }

@@ -305,6 +305,10 @@ impl Runtime {
             None => return Ok(None),
         };
         let f = self.slots[k].flat();
+        if n == 0 {
+            // nothing to constrain, whatever the bound's size
+            return Ok(Some(f));
+        }
         if f.is_empty() || (f.len() != 1 && n % f.len() != 0) {
             return Err(format!("E_SHAPE: a bound has {} elements for a variable with {n}", f.len()));
         }
@@ -342,6 +346,9 @@ impl Runtime {
                 let m = mul.as_ref().map_or(S::c(1.0), |v| at(v, i));
                 if !(m.v > 0.0) || !m.v.is_finite() {
                     return Err(format!("E_DOMAIN: multiplier is {}, but must be positive finite", m.v));
+                }
+                if !o.v.is_finite() {
+                    return Err(format!("E_DOMAIN: offset is {}, but must be finite", o.v));
                 }
                 let x = t.node(o.v + m.v * u.v, &[(u, m.v), (m, u.v), (o, 1.0)]);
                 let lj = t.node(m.v.ln(), &[(m, 1.0 / m.v)]);
@@ -435,17 +442,16 @@ impl Runtime {
                 f(&mut self.tape, &args).map_err(rt)?
             }
             OpKind::GetTarget => Val::Real(self.target_sum()),
-            OpKind::Lpdf { dist: d, lu, discrete } => {
+            OpKind::Lpdf { dist: d, lu, discrete, keep } => {
                 let args: Vec<&Val> = a.iter().map(|&k| &self.slots[k]).collect();
                 let propto = *lu && self.propto;
-                let s = if *discrete { dist::lpmf(&mut self.tape, d, &args, propto) } else { dist::lpdf(&mut self.tape, d, &args, propto) };
+                let s = if *discrete { dist::lpmf(&mut self.tape, d, &args, keep, propto) } else { dist::lpdf(&mut self.tape, d, &args, keep, propto) };
                 Val::Real(s.map_err(rt)?)
             }
             OpKind::Index(kinds) => {
                 let raw = self.raw_idx(kinds, &a[1..])?;
                 index_val(&self.slots[a[0]], &raw)?
             }
-            OpKind::VecLit => Val::Vector(a.iter().map(|&k| scalar_of(&self.slots[k])).collect::<R<_>>()?),
             OpKind::RowVecLit => {
                 if a.iter().all(|&k| self.slots[k].is_scalar()) {
                     Val::RowVector(a.iter().map(|&k| scalar_of(&self.slots[k])).collect::<R<_>>()?)
@@ -494,8 +500,14 @@ impl Runtime {
                 let raw = self.raw_idx(kinds, &a[2..])?;
                 let mut t = std::mem::replace(&mut self.slots[a[0]], Val::Int(0));
                 let r = if a[1] == a[0] {
-                    // self assignment (e.g. a declaration's own slot): nothing to do
-                    Ok(())
+                    if kinds.is_empty() {
+                        // unindexed self assignment (e.g. a declaration's own slot)
+                        Ok(())
+                    } else {
+                        // x[idx] = x: the right side is the value before the assignment
+                        let rhs = t.clone();
+                        assign_val(&mut t, &raw, &rhs)
+                    }
                 } else {
                     assign_val(&mut t, &raw, &self.slots[a[1]])
                 };
@@ -503,7 +515,13 @@ impl Runtime {
                 return r;
             }
             OpKind::Target => {
+                if matches!(self.slots[a[0]], Val::Int(i64::MIN)) {
+                    return Err("E_DOMAIN: integer variable used before it is assigned".into());
+                }
                 let s = self.slots[a[0]].flat();
+                if s.iter().any(|x| x.v.is_nan()) {
+                    return Err("E_DOMAIN: target increment is NaN".into());
+                }
                 if s.len() == 1 {
                     self.target.push(s[0]);
                 } else {
@@ -516,6 +534,9 @@ impl Runtime {
             OpKind::Jacobian => {
                 if self.jacobian {
                     let s = self.slots[a[0]].flat();
+                    if s.iter().any(|x| x.v.is_nan()) {
+                        return Err("E_DOMAIN: jacobian increment is NaN".into());
+                    }
                     let v = s.iter().map(|x| x.v).sum();
                     let n = self.tape.node_many(v, &s, &vec![1.0; s.len()]);
                     self.target.push(n);
@@ -544,6 +565,7 @@ impl Runtime {
     pub fn truthy(&self, k: usize) -> R<bool> {
         match &self.slots[k] {
             Val::Int(i) => Ok(*i != 0),
+            Val::Real(s) if s.v.is_nan() => Err("E_DOMAIN: condition is NaN".into()),
             Val::Real(s) => Ok(s.v != 0.0),
             _ => Err("E_INTERNAL: condition must be a scalar".into()),
         }

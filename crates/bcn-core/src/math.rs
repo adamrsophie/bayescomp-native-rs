@@ -77,11 +77,23 @@ fn pow(a: f64, b: f64) -> (f64, f64, f64) {
 
 const OVERFLOW: &str = "E_DOMAIN: integer overflow";
 
+/// Stan integers are 32 bit; as in the R backend, results outside
+/// [-2147483647, 2147483647] are an error.
+pub fn int_range(x: Option<i64>) -> R<i64> {
+    match x {
+        Some(v) if (-2_147_483_647..=2_147_483_647).contains(&v) => Ok(v),
+        _ => Err(OVERFLOW.into()),
+    }
+}
+
 fn int_binop(op: &str, a: i64, b: i64) -> R<Val> {
+    if a == i64::MIN || b == i64::MIN {
+        return Err("E_DOMAIN: integer variable used before it is assigned".into());
+    }
     Ok(match op {
-        "+" => Val::Int(a.checked_add(b).ok_or(OVERFLOW)?),
-        "-" => Val::Int(a.checked_sub(b).ok_or(OVERFLOW)?),
-        "*" => Val::Int(a.checked_mul(b).ok_or(OVERFLOW)?),
+        "+" => Val::Int(int_range(a.checked_add(b))?),
+        "-" => Val::Int(int_range(a.checked_sub(b))?),
+        "*" => Val::Int(int_range(a.checked_mul(b))?),
         "/" | "%/%" => {
             if b == 0 {
                 return Err("E_DOMAIN: integer division by zero".into());
@@ -252,7 +264,7 @@ pub fn unary_fn(name: &str) -> Option<Unary> {
         "expm1" => |x: f64| (x.exp_m1(), x.exp()),
         "log1m" => |x: f64| ((-x).ln_1p(), -1.0 / (1.0 - x)),
         "log1p_exp" => |x: f64| (sp::log1p_exp(x), sp::inv_logit(x)),
-        "log1m_exp" => |x: f64| ((-(x.exp_m1())).ln(), -1.0 / (-x).exp_m1()),
+        "log1m_exp" => |x: f64| (if x > -std::f64::consts::LN_2 { (-(x.exp_m1())).ln() } else { (-x.exp()).ln_1p() }, -1.0 / (-x).exp_m1()),
         "inv_logit" | "logistic" => |x: f64| {
             let p = sp::inv_logit(x);
             (p, p * (1.0 - p))
@@ -297,7 +309,7 @@ pub fn unary_fn(name: &str) -> Option<Unary> {
             let v = x.cbrt();
             (v, 1.0 / (3.0 * v * v))
         },
-        "erf" => |x: f64| (1.0 - sp::erfc(x), 2.0 / std::f64::consts::PI.sqrt() * (-x * x).exp()),
+        "erf" => |x: f64| (sp::erf(x), 2.0 / std::f64::consts::PI.sqrt() * (-x * x).exp()),
         "erfc" => |x: f64| (sp::erfc(x), -2.0 / std::f64::consts::PI.sqrt() * (-x * x).exp()),
         "floor" => |x: f64| (x.floor(), 0.0),
         "ceil" => |x: f64| (x.ceil(), 0.0),
@@ -308,6 +320,20 @@ pub fn unary_fn(name: &str) -> Option<Unary> {
 }
 
 pub fn trigamma(mut x: f64) -> f64 {
+    if x.is_nan() || x == f64::NEG_INFINITY {
+        return f64::NAN;
+    }
+    if x == f64::INFINITY {
+        return 0.0;
+    }
+    if x <= 0.0 {
+        if x == x.floor() {
+            return f64::INFINITY;
+        }
+        // reflection: psi1(x) + psi1(1 - x) = pi^2 / sin(pi x)^2
+        let s = (std::f64::consts::PI * x).sin();
+        return std::f64::consts::PI * std::f64::consts::PI / (s * s) - trigamma(1.0 - x);
+    }
     let mut r = 0.0;
     while x < 12.0 {
         r += 1.0 / (x * x);
@@ -321,8 +347,9 @@ pub fn trigamma(mut x: f64) -> f64 {
 pub fn binary_fn(name: &str) -> Option<Binary> {
     Some(match name {
         "pow" => pow,
-        "fmin" => |a: f64, b: f64| if a <= b { (a, 1.0, 0.0) } else { (b, 0.0, 1.0) },
-        "fmax" => |a: f64, b: f64| if a >= b { (a, 1.0, 0.0) } else { (b, 0.0, 1.0) },
+        // as C's fmin and fmax, a NaN argument gives the other one
+        "fmin" => |a: f64, b: f64| if b.is_nan() || a <= b { (a, 1.0, 0.0) } else { (b, 0.0, 1.0) },
+        "fmax" => |a: f64, b: f64| if b.is_nan() || a >= b { (a, 1.0, 0.0) } else { (b, 0.0, 1.0) },
         "hypot" => |a: f64, b: f64| {
             let h = a.hypot(b);
             (h, a / h, b / h)

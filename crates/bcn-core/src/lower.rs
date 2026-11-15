@@ -242,12 +242,19 @@ impl Lw {
             "cond" => {
                 let c = self.expr(&e["cond"], out)?;
                 let d = self.slot();
+                // a real result promotes an integer branch
+                let real = e["type"]["base"] == "real" && e["type"]["nd"].as_u64().unwrap_or(0) == 0;
+                let zero = if real { Some(self.constant(Val::real(0.0))) } else { None };
                 let mut then = Vec::new();
                 let a = self.expr(&e["a"], &mut then)?;
-                self.op(&mut then, OpKind::Copy, d, vec![a]);
                 let mut els = Vec::new();
                 let b = self.expr(&e["b"], &mut els)?;
-                self.op(&mut els, OpKind::Copy, d, vec![b]);
+                for (branch, x, j) in [(&mut then, a, &e["a"]), (&mut els, b, &e["b"])] {
+                    match zero {
+                        Some(z) if j["type"]["base"] == "int" => self.op(branch, OpKind::Bin(BinOp::Add), d, vec![x, z]),
+                        _ => self.op(branch, OpKind::Copy, d, vec![x]),
+                    }
+                }
                 out.push(Stmt::If { cond: c, then: Box::new(Stmt::Block(then)), els: Box::new(Stmt::Block(els)) });
                 Ok(d)
             }
@@ -301,8 +308,11 @@ impl Lw {
             (t["base"].as_str().unwrap_or("").to_string(), t["nd"].as_u64().unwrap_or(0))
         };
         let all_of = |ok: &[&str]| ja.iter().all(|a| { let (b, nd) = ty(a); nd == 0 && ok.contains(&b.as_str()) });
+        let one = |b: &str| ja.len() == 1 && ty(&ja[0]) == (b.to_string(), 0);
         let restricted = match name {
             "log_mix" => ja.len() == 3 && all_of(&["int", "real"]),
+            "fma" => ja.len() == 3 && all_of(&["int", "real"]),
+            "softmax" | "log_softmax" => one("vector"),
             "append_row" => all_of(&["int", "real", "vector"]),
             "append_col" => all_of(&["int", "real", "row_vector"]),
             _ => true,
@@ -328,10 +338,17 @@ impl Lw {
                 if !dist::supported(dn) || dist::is_discrete(dn) != discrete {
                     return unsupported(format!("function '{name}'"));
                 }
-                self.op(out, OpKind::Lpdf { dist: dn.to_string(), lu, discrete }, d, args);
+                self.op(out, OpKind::Lpdf { dist: dn.to_string(), lu, discrete, keep: keep_flags(ja) }, d, args);
                 return Ok(d);
             }
         }
+        // the element type of an integer array, which an empty array lacks at run time
+        let name = match name {
+            "min" | "max" if ja.len() == 1 && ty(&ja[0]).0 == "int" && ty(&ja[0]).1 > 0 => {
+                if name == "min" { "min_int" } else { "max_int" }
+            }
+            _ => name,
+        };
         let k = if let Some(f) = calls::lookup(name) {
             OpKind::Call(f)
         } else if ja.len() == 1 && math::unary_fn(name).is_some() {
@@ -414,7 +431,8 @@ impl Lw {
         }
         let cons = &ty["cons"];
         let constrained = cons.is_object() && cons.as_object().map(|o| !o.is_empty()).unwrap_or(false);
-        Ok(Some((dst, if constrained { cons.clone() } else { J::Null }, name)).filter(|_| constrained || d["block"] == "transformed parameters"))
+        // as in Stan, only declared constraints are checked
+        Ok(constrained.then(|| (dst, cons.clone(), name)))
     }
 
     fn stmt(&mut self, st: &J, out: &mut Vec<Stmt>) -> Result<(), String> {
@@ -441,7 +459,16 @@ impl Lw {
                 self.scopes.pop();
                 out.push(Stmt::Block(body));
             }
-            "empty" | "print" => {}
+            "empty" => {}
+            "print" => {
+                // output is not shown by the native backend, but the arguments are
+                // evaluated so their errors are raised as in the R backend
+                for it in arr(st, "items") {
+                    if it["kind"] != "string" {
+                        self.expr(it, out)?;
+                    }
+                }
+            }
             "assign" => {
                 let op = s(st, "op")?;
                 let lhs = &st["lhs"];
@@ -492,8 +519,10 @@ impl Lw {
                 for a in arr(st, "args") {
                     args.push(self.expr(a, out)?);
                 }
+                let mut all = vec![st["lhs"].clone()];
+                all.extend(arr(st, "args").iter().cloned());
                 let d = self.slot();
-                self.op(out, OpKind::Lpdf { dist: dn.to_string(), lu: true, discrete: dist::is_discrete(dn) }, d, args);
+                self.op(out, OpKind::Lpdf { dist: dn.to_string(), lu: true, discrete: dist::is_discrete(dn), keep: keep_flags(&all) }, d, args);
                 self.op(out, OpKind::Target, 0, vec![d]);
             }
             "if" => {
@@ -517,7 +546,10 @@ impl Lw {
                 out.push(Stmt::For { var, lo, hi, body: Box::new(Stmt::Block(body)) });
             }
             "foreach" => {
-                let c = self.expr(&st["iter"], out)?;
+                // iterate over a copy: the body may assign to the container
+                let src = self.expr(&st["iter"], out)?;
+                let c = self.slot();
+                self.op(out, OpKind::Copy, c, vec![src]);
                 self.scopes.push(HashMap::new());
                 let var = self.bind(s(st, "var")?);
                 let mut body = Vec::new();
@@ -632,4 +664,15 @@ pub fn lower(ir: &J, data: &J, dim: usize) -> Result<Program, String> {
         lw.stmt(st, &mut body)?;
     }
     Ok(Program { ops: lw.ops, body: Stmt::Block(body), nslots: lw.nslots, init: lw.init, dim })
+}
+
+/// Which density arguments keep their terms under propto: those that are not
+/// data only and not integers, as in the R backend's code generator.
+fn keep_flags(args: &[J]) -> Vec<bool> {
+    args.iter()
+        .map(|a| {
+            let base = a["type"]["base"].as_str().unwrap_or("int");
+            !(a["data_only"].as_bool().unwrap_or(false) || base == "int")
+        })
+        .collect()
 }

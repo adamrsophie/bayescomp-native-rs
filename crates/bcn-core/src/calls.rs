@@ -23,6 +23,13 @@ fn scalar(v: &Val, f: &str) -> R<S> {
 }
 
 fn sum(t: &mut Tape, a: &[&Val]) -> R<Val> {
+    if a[0].is_int_like() && !matches!(a[0], Val::Int(_)) {
+        let mut acc: i64 = 0;
+        for x in a[0].ints()? {
+            acc = math::int_range(acc.checked_add(x))?;
+        }
+        return Ok(Val::Int(acc));
+    }
     Ok(math::sum(t, a[0]))
 }
 
@@ -37,8 +44,11 @@ fn mean(t: &mut Tape, a: &[&Val]) -> R<Val> {
 }
 
 fn variance_core(t: &mut Tape, f: &[S], fname: &str) -> R<S> {
-    if f.len() < 2 {
-        return Err(format!("E_DOMAIN: {fname}: argument must have at least two elements"));
+    if f.is_empty() {
+        return Err(format!("E_DOMAIN: {fname}: argument has size zero"));
+    }
+    if f.len() == 1 {
+        return Ok(S::c(0.0));
     }
     let n = f.len() as f64;
     let m = f.iter().map(|s| s.v).sum::<f64>() / n;
@@ -54,12 +64,17 @@ fn variance(t: &mut Tape, a: &[&Val]) -> R<Val> {
 fn sd(t: &mut Tape, a: &[&Val]) -> R<Val> {
     let v = variance_core(t, &a[0].flat(), "sd")?;
     let s = v.v.sqrt();
-    Ok(Val::Real(t.node(s, &[(v, 0.5 / s)])))
+    // zero gradient at a constant vector, as in the R backend
+    Ok(Val::Real(t.node(s, &[(v, if s > 0.0 { 0.5 / s } else { 0.0 })])))
 }
 
 fn prod(t: &mut Tape, a: &[&Val]) -> R<Val> {
     if a[0].is_int_like() {
-        return Ok(Val::Int(a[0].ints()?.iter().product()));
+        let mut acc: i64 = 1;
+        for x in a[0].ints()? {
+            acc = math::int_range(acc.checked_mul(x))?;
+        }
+        return Ok(Val::Int(acc));
     }
     let f = a[0].flat();
     let v: f64 = f.iter().map(|s| s.v).product();
@@ -190,11 +205,8 @@ fn minmax(t: &mut Tape, a: &[&Val], is_max: bool) -> R<Val> {
         let g = math::binary_fn(if is_max { "fmax" } else { "fmin" }).unwrap();
         return Ok(Val::Real(math::bin(t, scalar(a[0], f)?, scalar(a[1], f)?, g)));
     }
-    if a[0].is_int_like() {
+    if a[0].is_int_like() && !(matches!(a[0], Val::Array(x) if x.is_empty())) {
         let v = a[0].ints()?;
-        if v.is_empty() {
-            return Err(format!("E_DOMAIN: {f}: argument must not be empty"));
-        }
         return Ok(Val::Int(if is_max { *v.iter().max().unwrap() } else { *v.iter().min().unwrap() }));
     }
     let v = a[0].flat();
@@ -218,6 +230,16 @@ fn min(t: &mut Tape, a: &[&Val]) -> R<Val> {
     minmax(t, a, false)
 }
 
+// one integer array argument (the lowering picks these from the static type,
+// since an empty array has no element type at run time)
+fn max_int(_: &mut Tape, a: &[&Val]) -> R<Val> {
+    a[0].ints()?.into_iter().max().map(Val::Int).ok_or_else(|| "E_DOMAIN: max: integer array of size zero".into())
+}
+
+fn min_int(_: &mut Tape, a: &[&Val]) -> R<Val> {
+    a[0].ints()?.into_iter().min().map(Val::Int).ok_or_else(|| "E_DOMAIN: min: integer array of size zero".into())
+}
+
 fn fma(t: &mut Tape, a: &[&Val]) -> R<Val> {
     let (x, y, z) = (scalar(a[0], "fma")?, scalar(a[1], "fma")?, scalar(a[2], "fma")?);
     Ok(Val::Real(t.node(x.v * y.v + z.v, &[(x, y.v), (y, x.v), (z, 1.0)])))
@@ -233,6 +255,9 @@ fn log_mix(t: &mut Tape, a: &[&Val]) -> R<Val> {
     }
     let (x, y) = (th.v.ln() + l1.v, (-th.v).ln_1p() + l2.v);
     let m = x.max(y);
+    if m == f64::NEG_INFINITY {
+        return Ok(Val::Real(t.node(m, &[(th, 0.0), (l1, 0.0), (l2, 0.0)])));
+    }
     let v = m + ((x - m).exp() + (y - m).exp()).ln();
     let (wx, wy) = ((x - v).exp(), (y - v).exp());
     // d/dtheta = (exp(l1) - exp(l2)) / exp(v), finite at theta = 0 and 1
@@ -268,8 +293,13 @@ fn log_softmax(t: &mut Tape, a: &[&Val]) -> R<Val> {
 
 fn cumulative_sum(t: &mut Tape, a: &[&Val]) -> R<Val> {
     if a[0].is_int_like() {
-        let mut acc = 0;
-        return Ok(Val::Array(a[0].ints()?.into_iter().map(|x| { acc += x; Val::Int(acc) }).collect()));
+        let mut acc: i64 = 0;
+        let mut out = Vec::new();
+        for x in a[0].ints()? {
+            acc = math::int_range(acc.checked_add(x))?;
+            out.push(Val::Int(acc));
+        }
+        return Ok(Val::Array(out));
     }
     let f = a[0].flat();
     let mut out = Vec::with_capacity(f.len());
@@ -425,6 +455,8 @@ pub fn lookup(name: &str) -> Option<CallFn> {
         "to_row_vector" => to_row_vector,
         "max" => max,
         "min" => min,
+        "max_int" => max_int,
+        "min_int" => min_int,
         "fma" => fma,
         "log_mix" => log_mix,
         "softmax" => softmax,

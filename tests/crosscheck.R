@@ -1,6 +1,6 @@
 # Cross-check the native interpreter against the R backend of bayescompR.
 # Usage: Rscript tests/crosscheck.R OUTDIR PATH/TO/eval
-suppressMessages(library(bayescompR))
+if (nzchar(Sys.getenv("BAYESCOMPR_SRC"))) pkgload::load_all(Sys.getenv("BAYESCOMPR_SRC"), quiet = TRUE) else suppressMessages(library(bayescompR))
 model_lpg <- bayescompR:::model_lpg
 S <- commandArgs(TRUE)[1]
 dir.create(S, recursive = TRUE, showWarnings = FALSE)
@@ -57,6 +57,7 @@ for (nm in names(models)) {
     if (!is.null(r$err)) { bad <- TRUE; cat(nm, "R error only:", r$err, "\n"); next }
     v <- as.numeric(strsplit(o, " ")[[1]])
     d <- max(abs(v[1] - r$value) / max(1, abs(r$value)), abs(v[-1] - r$grad) / pmax(1, abs(r$grad)))
+    if (d > 1e-10) cat(nm, "point", i, "jacobian", cb[1], "propto", cb[2], "native", v, "R", r$value, r$grad, "\n")
     worst <- max(worst, d)
   }
   if (worst > 1e-10) bad <- TRUE
