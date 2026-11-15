@@ -86,8 +86,8 @@ jobs:
 
   # LLVM is linked statically (force-static), so users need no LLVM
   # installation. The Linux library is built on Ubuntu 22.04 and needs glibc
-  # 2.35 or newer, libstdc++, zlib, zstd and libxml2 (libxml2.so.2) at run
-  # time. The macOS library links only system libraries; it is built and
+  # 2.35 or newer, libstdc++, zlib, zstd, libffi and libxml2 (libxml2.so.2) at
+  # run time. The macOS library links only system libraries; it is built and
   # tested on macOS 15.
   llvm:
     runs-on: ${{ matrix.runner }}
@@ -138,7 +138,7 @@ jobs:
           ls -la "$f"
           if [ "$RUNNER_OS" = "Linux" ]; then
             ldd "$f"
-            extra=$(ldd "$f" | awk '{print $1}' | grep -vE '^(linux-vdso\.so|libc\.so|libm\.so|libdl\.so|libpthread\.so|librt\.so|libgcc_s\.so|libstdc\+\+\.so|libz\.so|libzstd\.so|libxml2\.so\.2|libicu[a-z]*\.so|liblzma\.so|/lib.*/ld-linux)' || true)
+            extra=$(ldd "$f" | awk '{print $1}' | grep -vE '^(linux-vdso\.so|libc\.so|libm\.so|libdl\.so|libpthread\.so|librt\.so|libgcc_s\.so|libstdc\+\+\.so|libz\.so|libzstd\.so|libxml2\.so\.2|libffi\.so|libicu[a-z]*\.so|liblzma\.so|/lib.*/ld-linux)' || true)
             if [ -n "$extra" ]; then echo "unexpected dependencies: $extra"; exit 1; fi
             glibc=$(objdump -T "$f" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -1)
             echo "newest glibc symbol version: $glibc"
@@ -218,7 +218,7 @@ jobs:
           path: dist
       - name: Run time libraries
         if: runner.os == 'Linux'
-        run: sudo apt-get install -y libzstd1 zlib1g libxml2
+        run: sudo apt-get install -y libzstd1 zlib1g libxml2 libffi8
       - uses: r-lib/actions/setup-r@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05 # v2
         with:
           use-public-rspm: true
@@ -263,7 +263,7 @@ jobs:
 
           Requirements: the Cranelift libraries need glibc 2.28 or newer on Linux and macOS 11 or newer.
           The LLVM libraries link LLVM statically; on Linux they need glibc 2.35 or newer, libstdc++, zlib,
-          zstd and libxml2 (libxml2.so.2); on macOS they are built and tested on macOS 15 (Apple silicon).
+          zstd, libffi and libxml2 (libxml2.so.2); on macOS they are built and tested on macOS 15 (Apple silicon).
           EOF
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --notes-file notes.md
 
