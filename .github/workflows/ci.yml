@@ -66,7 +66,7 @@ jobs:
         shell: Rscript {0}
       - name: Edge cases against the R backend
         run: |
-          lib=$(ls target/release/libbcn_ffi.so target/release/libbcn_ffi.dylib target/release/bcn_ffi.dll 2> /dev/null | head -1)
+          for lib in target/release/libbcn_ffi.so target/release/libbcn_ffi.dylib target/release/bcn_ffi.dll; do [ -f "$lib" ] && break; done
           Rscript tests/parity.R "$lib" cranelift
       - name: Cross check the interpreter and the JIT against the R backend
         if: runner.os != 'Windows'
@@ -116,7 +116,7 @@ jobs:
         shell: Rscript {0}
       - name: Edge cases against the R backend
         run: |
-          lib=$(ls target/release/libbcn_ffi.so target/release/libbcn_ffi.dylib 2> /dev/null | head -1)
+          for lib in target/release/libbcn_ffi.so target/release/libbcn_ffi.dylib target/release/bcn_ffi.dll; do [ -f "$lib" ] && break; done
           Rscript tests/parity.R "$lib" llvm
       - name: Cross check the LLVM JIT against the R backend
         run: |
