@@ -12,6 +12,8 @@ repository.workspace = true
 default = []
 llvm18 = ["inkwell/llvm18-1"]
 llvm20 = ["inkwell/llvm20-1"]
+# links LLVM statically or fails, for the prebuilt libraries
+llvm20-static = ["inkwell/llvm20-1-force-static"]
 llvm21 = ["inkwell/llvm21-1"]
 llvm22 = ["inkwell/llvm22-1"]
 

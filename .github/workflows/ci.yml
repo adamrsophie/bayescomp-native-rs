@@ -22,7 +22,7 @@ jobs:
       - run: cargo build --release --locked -p bcn-core -p bcn-cranelift -p bcn-ffi --examples
       - run: cargo test --release --locked -p bcn-core -p bcn-cranelift -p bcn-ffi
 
-  # the oldest rustc on the CRAN build machines
+  # the minimum supported Rust version
   msrv:
     runs-on: ubuntu-latest
     steps:
@@ -64,6 +64,10 @@ jobs:
           v <- bayescomp_validate_backend(m)
           stopifnot(max(v$lp_rel) < 1e-8, max(v$grad_rel) < 1e-8)
         shell: Rscript {0}
+      - name: Edge cases against the R backend
+        run: |
+          lib=$(ls target/release/libbcn_ffi.so target/release/libbcn_ffi.dylib target/release/bcn_ffi.dll 2> /dev/null | head -1)
+          Rscript tests/parity.R "$lib" cranelift
       - name: Cross check the interpreter and the JIT against the R backend
         if: runner.os != 'Windows'
         run: |
@@ -110,6 +114,10 @@ jobs:
           install.packages("remotes")
           remotes::install_github("adamrsophie/bayescompR", upgrade = "never", dependencies = TRUE)
         shell: Rscript {0}
+      - name: Edge cases against the R backend
+        run: |
+          lib=$(ls target/release/libbcn_ffi.so target/release/libbcn_ffi.dylib 2> /dev/null | head -1)
+          Rscript tests/parity.R "$lib" llvm
       - name: Cross check the LLVM JIT against the R backend
         run: |
           cargo build --release --locked -p bcn-llvm --features "llvm$LLVM_MAJOR" --examples

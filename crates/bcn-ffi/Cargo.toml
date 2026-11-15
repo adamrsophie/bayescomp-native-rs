@@ -17,6 +17,7 @@ cranelift = ["dep:bcn-cranelift"]
 llvm = ["dep:bcn-llvm"]
 llvm18 = ["llvm", "bcn-llvm/llvm18"]
 llvm20 = ["llvm", "bcn-llvm/llvm20"]
+llvm20-static = ["llvm", "bcn-llvm/llvm20-static"]
 llvm21 = ["llvm", "bcn-llvm/llvm21"]
 llvm22 = ["llvm", "bcn-llvm/llvm22"]
 

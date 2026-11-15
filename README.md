@@ -62,10 +62,26 @@ is built; use the R backend for them.
 
 Both JITs call the same runtime as the interpreter for every leaf operation,
 so all three engines are bit identical; `eval_jit` and `eval_llvm` check
-this on every point. All of them
-agree with the R backend to a relative difference below 4e-14 on the
-cross check models, and raise the same error classes (reject, domain,
-shape, unsupported).
+this on every point. Two test scripts compare them with the R backend of
+bayescompR, value, gradient and error class (reject, domain, shape,
+unsupported), under all four Jacobian and `propto` combinations:
+`tests/crosscheck.R` on six models covering the supported language, where
+the relative difference stays below 4e-14, and `tests/parity.R` on edge
+cases (special functions at poles and infinities, distribution domains and
+boundaries, integer overflow, `propto` with arguments that are constant at
+run time, transformed parameter checks, loops). These are tests of the
+cases they cover; `bayescomp_validate_backend()` checks a model of your own.
+
+The native backend cannot be interrupted while it evaluates: a Stan `while`
+loop that never ends blocks the R session. Programs outside the supported
+subset are refused with `bayescomp_unsupported_error` when the model is
+built; such a program runs with the default R backend.
+
+Prebuilt libraries: the Cranelift libraries need glibc 2.28 or newer on
+Linux and macOS 11 or newer. The LLVM libraries link LLVM statically; on
+Linux they need glibc 2.35 or newer, libstdc++, zlib, zstd and libxml2
+(`libxml2.so.2`), and on macOS they are built and tested on macOS 15
+(Apple silicon).
 
 ## Speed
 

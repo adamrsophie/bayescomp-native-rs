@@ -1,17 +1,27 @@
 name: release
 
 # Builds the shared libraries that bayescompR::bayescomp_install_backend()
-# downloads, one per backend, operating system and architecture, and attaches
-# them with their checksums to the GitHub release of the tag.
+# downloads, one per backend, operating system and architecture, tests each
+# one against the R backend, and attaches them with their checksums to a new
+# GitHub release of the tag. A release is never replaced: publishing fails if
+# the release exists, so the checksums embedded in bayescompR stay valid.
 
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 defaults:
   run:
     shell: bash
+
+env:
+  RUST_TOOLCHAIN: '1.98.1'
+  # the bayescompR revision the libraries are tested with
+  BAYESCOMPR_REF: '7489dd8c37db7e05f790e3037d493306fd5afa72'
 
 jobs:
   cranelift:
@@ -22,45 +32,63 @@ jobs:
       matrix:
         include:
           # manylinux images have an old glibc (2.28), so the library loads on older distributions
-          - { platform: linux-x86_64, runner: ubuntu-latest, container: 'quay.io/pypa/manylinux_2_28_x86_64', target: x86_64-unknown-linux-gnu, file: libbcn_ffi.so, ext: .so }
-          - { platform: linux-aarch64, runner: ubuntu-24.04-arm, container: 'quay.io/pypa/manylinux_2_28_aarch64', target: aarch64-unknown-linux-gnu, file: libbcn_ffi.so, ext: .so }
-          - { platform: darwin-aarch64, runner: macos-latest, target: aarch64-apple-darwin, file: libbcn_ffi.dylib, ext: .so }
-          - { platform: darwin-x86_64, runner: macos-latest, target: x86_64-apple-darwin, file: libbcn_ffi.dylib, ext: .so }
+          - { platform: linux-x86_64, runner: ubuntu-latest, container: 'quay.io/pypa/manylinux_2_28_x86_64@sha256:d086f64cddcace250ef0f0073583c51b8298159303290a730c9f59bd91edfd2c', target: x86_64-unknown-linux-gnu, file: libbcn_ffi.so, ext: .so }
+          - { platform: linux-aarch64, runner: ubuntu-24.04-arm, container: 'quay.io/pypa/manylinux_2_28_aarch64@sha256:34a5e614a4eb26f73f8bf44cbbf2acf8011620453d03ea35a58537bb3cde44de', target: aarch64-unknown-linux-gnu, file: libbcn_ffi.so, ext: .so }
+          - { platform: darwin-aarch64, runner: macos-15, target: aarch64-apple-darwin, file: libbcn_ffi.dylib, ext: .so, rustflags: '-C link-arg=-Wl,-install_name,@rpath/libbcn_ffi.dylib' }
+          - { platform: darwin-x86_64, runner: macos-15, target: x86_64-apple-darwin, file: libbcn_ffi.dylib, ext: .so, rustflags: '-C link-arg=-Wl,-install_name,@rpath/libbcn_ffi.dylib' }
           # the C runtime is linked statically, so the DLL needs no Visual C++ redistributable
           - { platform: windows-x86_64, runner: windows-latest, target: x86_64-pc-windows-msvc, file: bcn_ffi.dll, ext: .dll, rustflags: '-C target-feature=+crt-static' }
     env:
       MACOSX_DEPLOYMENT_TARGET: '11.0'
       RUSTFLAGS: ${{ matrix.rustflags }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install Rust
         run: |
           if ! command -v rustup > /dev/null; then
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+            # rustup verifies the checksums of the toolchain it installs
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
             echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
           fi
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --target ${{ matrix.target }}
+          rustup default "$RUST_TOOLCHAIN"
       - run: |
-          rustup target add ${{ matrix.target }}
           cargo build --release --locked -p bcn-ffi --features cranelift --target ${{ matrix.target }} \
             --config 'profile.release.codegen-units=1' --config 'profile.release.lto="thin"'
           mkdir -p dist
           cp "target/${{ matrix.target }}/release/${{ matrix.file }}" "dist/bcn-cranelift-${{ matrix.platform }}${{ matrix.ext }}"
-      - name: Dynamic dependencies
+      - name: Check the dynamic dependencies
         run: |
           f=dist/bcn-cranelift-${{ matrix.platform }}${{ matrix.ext }}
           case "${{ runner.os }}" in
-            Linux) ldd "$f" || true ;;
-            macOS) otool -L "$f" ;;
-            Windows) ls -la "$f" ;;
+            Linux)
+              ldd "$f"
+              extra=$(ldd "$f" | awk '{print $1}' | grep -vE '^(linux-vdso\.so|libc\.so|libm\.so|libdl\.so|libpthread\.so|librt\.so|libgcc_s\.so|/lib.*/ld-linux)' || true)
+              if [ -n "$extra" ]; then echo "unexpected dependencies: $extra"; exit 1; fi
+              glibc=$(objdump -T "$f" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -1)
+              echo "newest glibc symbol version: $glibc"
+              [ "$(printf '%s\n2.28\n' "$glibc" | sort -V | tail -1)" = "2.28" ] ;;
+            macOS)
+              otool -L "$f"
+              extra=$(otool -L "$f" | tail -n +2 | awk '{print $1}' | grep -vE '^(/usr/lib/|/System/|@rpath/libbcn_ffi)' || true)
+              if [ -n "$extra" ]; then echo "unexpected dependencies: $extra"; exit 1; fi
+              otool -l "$f" | awk '/LC_BUILD_VERSION/{b=1} b&&/minos/{print "minimum macOS", $2; exit}' ;;
+            Windows)
+              dumpbin=$(cygpath -u "$("/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe" -latest -find '**/Hostx64/x64/dumpbin.exe' | head -1 | tr -d '\r')")
+              "$dumpbin" -nologo -dependents "$f" | tee deps.txt
+              if grep -iE 'vcruntime|msvcp|ucrtbase|api-ms-win-crt' deps.txt; then echo "the C runtime is not linked statically"; exit 1; fi ;;
           esac
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: cranelift-${{ matrix.platform }}
           path: dist/*
 
-  # LLVM is linked statically, so users need no LLVM installation. Linux
-  # builds on Ubuntu 22.04 (glibc 2.35) and needs zlib, zstd and libxml2 at
-  # run time; macOS links zstd statically and uses the system zlib and libxml2.
+  # LLVM is linked statically (force-static), so users need no LLVM
+  # installation. The Linux library is built on Ubuntu 22.04 and needs glibc
+  # 2.35 or newer, libstdc++, zlib, zstd and libxml2 (libxml2.so.2) at run
+  # time. The macOS library links only system libraries; it is built and
+  # tested on macOS 15.
   llvm:
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -68,39 +96,59 @@ jobs:
       matrix:
         include:
           - { platform: linux-x86_64, runner: ubuntu-22.04, target: x86_64-unknown-linux-gnu, file: libbcn_ffi.so }
-          - { platform: darwin-aarch64, runner: macos-latest, target: aarch64-apple-darwin, file: libbcn_ffi.dylib }
+          - { platform: darwin-aarch64, runner: macos-15, target: aarch64-apple-darwin, file: libbcn_ffi.dylib }
     env:
       MACOSX_DEPLOYMENT_TARGET: '11.0'
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
       - name: Install LLVM 20
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then
-            wget -q https://apt.llvm.org/llvm.sh
-            sudo bash llvm.sh 20
+            # the apt.llvm.org repository, its signing key checked by fingerprint
+            wget -qO llvm.asc https://apt.llvm.org/llvm-snapshot.gpg.key
+            fp=$(gpg --show-keys --with-colons llvm.asc | awk -F: '/^fpr/{print $10; exit}')
+            [ "$fp" = "6084F3CF814B57C1CF12EFD515CF4D18AF4F7421" ]
+            sudo cp llvm.asc /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+            echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-20 main" | sudo tee /etc/apt/sources.list.d/llvm.list
+            sudo apt-get update
             sudo apt-get install -y llvm-20-dev libpolly-20-dev libzstd-dev zlib1g-dev libxml2-dev
             cfg=/usr/lib/llvm-20/bin/llvm-config
           else
             brew install llvm@20 zstd
             cfg="$(brew --prefix llvm@20)/bin/llvm-config"
-            # a directory with only the static zstd, searched first, so the library does not need Homebrew
+            # searched first: the static zstd and the SDK's libxml2 stub, so the
+            # library links neither Homebrew's zstd nor its libxml2
             mkdir -p "$RUNNER_TEMP/static"
             cp "$(brew --prefix zstd)/lib/libzstd.a" "$RUNNER_TEMP/static/"
-            echo "RUSTFLAGS=-L native=$RUNNER_TEMP/static" >> "$GITHUB_ENV"
+            cp "$(xcrun --show-sdk-path)/usr/lib/libxml2.tbd" "$RUNNER_TEMP/static/"
+            echo "RUSTFLAGS=-L native=$RUNNER_TEMP/static -C link-arg=-Wl,-install_name,@rpath/libbcn_ffi.dylib" >> "$GITHUB_ENV"
           fi
           echo "LLVM_SYS_201_PREFIX=$("$cfg" --prefix)" >> "$GITHUB_ENV"
       - run: |
-          cargo build --release --locked -p bcn-ffi --features llvm20 --target ${{ matrix.target }} \
+          cargo build --release --locked -p bcn-ffi --features llvm20-static --target ${{ matrix.target }} \
             --config 'profile.release.codegen-units=1' --config 'profile.release.lto="thin"'
           mkdir -p dist
           cp "target/${{ matrix.target }}/release/${{ matrix.file }}" "dist/bcn-llvm-${{ matrix.platform }}.so"
-      - name: Dynamic dependencies
+      - name: Check the dynamic dependencies
         run: |
           f=dist/bcn-llvm-${{ matrix.platform }}.so
           ls -la "$f"
-          if [ "$RUNNER_OS" = "Linux" ]; then ldd "$f"; else otool -L "$f"; ! otool -L "$f" | grep -q -e homebrew -e /usr/local; fi
-      - uses: actions/upload-artifact@v4
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            ldd "$f"
+            extra=$(ldd "$f" | awk '{print $1}' | grep -vE '^(linux-vdso\.so|libc\.so|libm\.so|libdl\.so|libpthread\.so|librt\.so|libgcc_s\.so|libstdc\+\+\.so|libz\.so|libzstd\.so|libxml2\.so\.2|libicu[a-z]*\.so|liblzma\.so|/lib.*/ld-linux)' || true)
+            if [ -n "$extra" ]; then echo "unexpected dependencies: $extra"; exit 1; fi
+            glibc=$(objdump -T "$f" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -1)
+            echo "newest glibc symbol version: $glibc"
+            [ "$(printf '%s\n2.35\n' "$glibc" | sort -V | tail -1)" = "2.35" ]
+          else
+            otool -L "$f"
+            extra=$(otool -L "$f" | tail -n +2 | awk '{print $1}' | grep -vE '^(/usr/lib/|/System/|@rpath/libbcn_ffi)' || true)
+            if [ -n "$extra" ]; then echo "unexpected dependencies: $extra"; exit 1; fi
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: llvm-${{ matrix.platform }}
           path: dist/*
@@ -114,34 +162,36 @@ jobs:
         include:
           - { os: ubuntu-latest, platform: linux-x86_64, ext: .so }
           - { os: ubuntu-24.04-arm, platform: linux-aarch64, ext: .so }
-          - { os: macos-latest, platform: darwin-aarch64, ext: .so }
+          - { os: macos-15, platform: darwin-aarch64, ext: .so }
+          - { os: macos-15-intel, platform: darwin-x86_64, ext: .so }
           - { os: windows-latest, platform: windows-x86_64, ext: .dll }
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: cranelift-${{ matrix.platform }}
           path: dist
-      - uses: r-lib/actions/setup-r@v2
+      - uses: r-lib/actions/setup-r@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05 # v2
         with:
           use-public-rspm: true
       - name: Install bayescompR
         run: |
           install.packages("remotes")
-          remotes::install_github("adamrsophie/bayescompR", upgrade = "never", dependencies = TRUE)
+          remotes::install_github(paste0("adamrsophie/bayescompR@", Sys.getenv("BAYESCOMPR_REF")), upgrade = "never", dependencies = TRUE)
         shell: Rscript {0}
-      - name: Load the library and compare it with the R backend
+      - name: Compare the library with the R backend
+        run: Rscript tests/parity.R "dist/bcn-cranelift-${{ matrix.platform }}${{ matrix.ext }}" cranelift
+      - name: Sample with the library
         run: |
           library(bayescompR)
           Sys.setenv(R_USER_DATA_DIR = tempfile())
           bayescomp_install_backend("cranelift", path = "dist/bcn-cranelift-${{ matrix.platform }}${{ matrix.ext }}")
-          code <- "data { int N; vector[N] y; } parameters { real mu; real<lower=0> s; }
-                   model { mu ~ normal(0, 5); s ~ exponential(1); y ~ normal(mu, s); }"
-          m <- bayescomp_model(code, data = list(N = 20, y = seq(-1, 2, length.out = 20)),
-                               backend = "cranelift", allow_fallback = TRUE)
+          m <- bayescomp_model("data { int N; vector[N] y; } parameters { real mu; real<lower=0> s; }
+                                model { mu ~ normal(0, 5); s ~ exponential(1); y ~ normal(mu, s); }",
+                               data = list(N = 20, y = seq(-1, 2, length.out = 20)), backend = "cranelift", allow_fallback = TRUE)
           v <- bayescomp_validate_backend(m)
-          print(v)
           stopifnot(max(v$lp_rel) < 1e-8, max(v$grad_rel) < 1e-8)
           fit <- bayescomp_sample(m, chains = 2, iter_warmup = 200, iter_sampling = 200, seed = 1, refresh = 0)
           print(summary(fit))
@@ -154,51 +204,46 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - { os: ubuntu-22.04, platform: linux-x86_64 }
           - { os: ubuntu-latest, platform: linux-x86_64 }
+          - { os: macos-15, platform: darwin-aarch64 }
           - { os: macos-latest, platform: darwin-aarch64 }
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: llvm-${{ matrix.platform }}
           path: dist
-      - uses: r-lib/actions/setup-r@v2
+      - name: Run time libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y libzstd1 zlib1g libxml2
+      - uses: r-lib/actions/setup-r@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05 # v2
         with:
           use-public-rspm: true
       - name: Install bayescompR
         run: |
           install.packages("remotes")
-          remotes::install_github("adamrsophie/bayescompR", upgrade = "never", dependencies = TRUE)
+          remotes::install_github(paste0("adamrsophie/bayescompR@", Sys.getenv("BAYESCOMPR_REF")), upgrade = "never", dependencies = TRUE)
         shell: Rscript {0}
-      - name: Load the library and compare it with the R backend
-        run: |
-          library(bayescompR)
-          Sys.setenv(R_USER_DATA_DIR = tempfile())
-          bayescomp_install_backend("llvm", path = "dist/bcn-llvm-${{ matrix.platform }}.so")
-          code <- "data { int N; vector[N] y; } parameters { real mu; real<lower=0> s; }
-                   model { mu ~ normal(0, 5); s ~ exponential(1); y ~ normal(mu, s); }"
-          m <- bayescomp_model(code, data = list(N = 20, y = seq(-1, 2, length.out = 20)),
-                               backend = "llvm", allow_fallback = TRUE)
-          v <- bayescomp_validate_backend(m)
-          print(v)
-          stopifnot(max(v$lp_rel) < 1e-8, max(v$grad_rel) < 1e-8)
-        shell: Rscript {0}
+      - name: Compare the library with the R backend
+        run: Rscript tests/parity.R "dist/bcn-llvm-${{ matrix.platform }}.so" llvm
 
   publish:
-    # the LLVM libraries are attached when they built and passed their test
+    # the LLVM libraries are attached when they built and passed their tests
     needs: [cranelift, test, llvm, test-llvm]
     if: always() && startsWith(github.ref, 'refs/tags/') && needs.test.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: dist
           pattern: cranelift-*
           merge-multiple: true
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         if: needs.test-llvm.result == 'success'
         with:
           path: dist
@@ -214,6 +259,40 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" \
-            --notes "Prebuilt native backends for bayescompR. Install them with bayescompR::bayescomp_install_backend()." \
-            || gh release upload "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+          cat > notes.md <<'EOF'
+          Prebuilt native backends for bayescompR. Install them with `bayescompR::bayescomp_install_backend()`.
+
+          Requirements: the Cranelift libraries need glibc 2.28 or newer on Linux and macOS 11 or newer.
+          The LLVM libraries link LLVM statically; on Linux they need glibc 2.35 or newer, libstdc++, zlib,
+          zstd and libxml2 (libxml2.so.2); on macOS they are built and tested on macOS 15 (Apple silicon).
+          EOF
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --notes-file notes.md
+
+  # the download path of the installer, against the published release
+  verify-download:
+    needs: publish
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-15, macos-15-intel, windows-latest]
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: r-lib/actions/setup-r@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05 # v2
+        with:
+          use-public-rspm: true
+      - name: Install bayescompR
+        run: |
+          install.packages("remotes")
+          remotes::install_github(paste0("adamrsophie/bayescompR@", Sys.getenv("BAYESCOMPR_REF")), upgrade = "never", dependencies = TRUE)
+        shell: Rscript {0}
+      - name: Download and use the published library
+        run: |
+          library(bayescompR)
+          Sys.setenv(R_USER_DATA_DIR = tempfile())
+          bayescomp_install_backend("cranelift")
+          m <- bayescomp_model("parameters { real mu; } model { mu ~ normal(1, 2); }", backend = "cranelift", allow_fallback = TRUE)
+          v <- bayescomp_validate_backend(m)
+          stopifnot(max(v$lp_rel) < 1e-8, max(v$grad_rel) < 1e-8)
+        shell: Rscript {0}
