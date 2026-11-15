@@ -1,6 +1,2 @@
 /target
 Cargo.lock.bak
-rpkg/*/src/rust/target
-rpkg/*/src/*.o
-rpkg/*/src/*.so
-rpkg/*/src/*.dll

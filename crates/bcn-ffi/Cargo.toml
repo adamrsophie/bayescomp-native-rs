@@ -1,6 +1,6 @@
 [package]
 name = "bcn-ffi"
-description = "C ABI of the bayescompR native backends, linked into the R packages"
+description = "C ABI of the bayescompR native backends, loaded by bayescompR as a shared library"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,7 +9,7 @@ authors.workspace = true
 repository.workspace = true
 
 [lib]
-crate-type = ["staticlib", "cdylib", "rlib"]
+crate-type = ["cdylib", "rlib"]
 
 [features]
 default = []

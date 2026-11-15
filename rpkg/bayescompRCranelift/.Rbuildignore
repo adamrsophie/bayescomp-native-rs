@@ -1,4 +1,0 @@
-^src/rust/target$
-^src/rust/vendor$
-^src/\.cargo$
-^cran-comments\.md$

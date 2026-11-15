@@ -21,12 +21,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --release --locked -p bcn-core -p bcn-cranelift -p bcn-ffi --examples
       - run: cargo test --release --locked -p bcn-core -p bcn-cranelift -p bcn-ffi
-      - name: Vendored crates match the workspace
-        if: runner.os != 'Windows'
-        run: |
-          sh tools/sync-rust.sh
-          # the vendored archive's bytes depend on the xz library; inst/AUTHORS tracks its crates
-          git diff --exit-code -- rpkg ':(exclude)*vendor.tar.xz'
 
   # the oldest rustc on the CRAN build machines
   msrv:
@@ -36,7 +30,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.92
       - run: cargo test --release --locked -p bcn-core -p bcn-cranelift -p bcn-ffi
 
-  rpkg:
+  # the shared library bayescompR downloads, loaded through its installer and
+  # compared with the R backend
+  shared-library:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -46,26 +42,28 @@ jobs:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      # on Windows the GNU host toolchain, as in Rtools on CRAN: build scripts
-      # linked by MSVC link.exe fail on the long paths of an R CMD check
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ runner.os == 'Windows' && 'stable-x86_64-pc-windows-gnu' || 'stable' }}
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release --locked -p bcn-ffi --features cranelift
       - uses: r-lib/actions/setup-r@v2
         with:
           use-public-rspm: true
-      - uses: r-lib/actions/setup-pandoc@v2
-      - uses: r-lib/actions/setup-r-dependencies@v2
-        with:
-          working-directory: rpkg/bayescompRCranelift
-          extra-packages: any::rcmdcheck, github::adamrsophie/bayescompR
-          needs: check
-      # as CRAN checks it: offline build from the vendored crates, NOT_CRAN unset
-      - uses: r-lib/actions/check-r-package@v2
-        with:
-          working-directory: rpkg/bayescompRCranelift
-          args: 'c("--no-manual", "--as-cran")'
-          error-on: '"warning"'
+      - name: Install bayescompR
+        run: |
+          install.packages("remotes")
+          remotes::install_github("adamrsophie/bayescompR", upgrade = "never", dependencies = TRUE)
+        shell: Rscript {0}
+      - name: Install the library with bayescompR and compare it with the R backend
+        run: |
+          library(bayescompR)
+          Sys.setenv(R_USER_DATA_DIR = tempfile())
+          lib <- Sys.glob(c("target/release/libbcn_ffi.so", "target/release/libbcn_ffi.dylib", "target/release/bcn_ffi.dll"))[1]
+          bayescomp_install_backend("cranelift", path = lib)
+          m <- bayescomp_model("data { int N; vector[N] y; } parameters { real mu; real<lower=0> s; }
+                                model { mu ~ normal(0, 5); s ~ exponential(1); y ~ normal(mu, s); }",
+                               data = list(N = 20, y = seq(-1, 2, length.out = 20)), backend = "cranelift", allow_fallback = TRUE)
+          v <- bayescomp_validate_backend(m)
+          stopifnot(max(v$lp_rel) < 1e-8, max(v$grad_rel) < 1e-8)
+        shell: Rscript {0}
       - name: Cross check the interpreter and the JIT against the R backend
         if: runner.os != 'Windows'
         run: |
@@ -105,16 +103,13 @@ jobs:
       - uses: r-lib/actions/setup-r@v2
         with:
           use-public-rspm: true
+      - name: Build the LLVM shared library
+        run: cargo build --release --locked -p bcn-ffi --features "llvm$LLVM_MAJOR"
       - name: Install bayescompR
         run: |
-          install.packages(c("remotes", "testthat"))
+          install.packages("remotes")
           remotes::install_github("adamrsophie/bayescompR", upgrade = "never", dependencies = TRUE)
         shell: Rscript {0}
-      - name: Install bayescompRLLVM
-        run: R CMD INSTALL rpkg/bayescompRLLVM
-      - name: Package tests
-        working-directory: rpkg/bayescompRLLVM/tests
-        run: Rscript -e 'library(testthat); library(bayescompRLLVM); res <- test_dir("testthat", reporter = "summary", stop_on_failure = TRUE)'
       - name: Cross check the LLVM JIT against the R backend
         run: |
           cargo build --release --locked -p bcn-llvm --features "llvm$LLVM_MAJOR" --examples

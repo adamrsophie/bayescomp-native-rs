@@ -1,4 +1,4 @@
-//! C ABI used by the R packages. A handle owns the lowered program, its
+//! C ABI loaded by bayescompR with dyn.load(). A handle owns the lowered program, its
 //! runtime and, for the compiled engines, the machine code. Every entry
 //! point catches panics. Errors are written to the caller's buffer as
 //! `E_CODE: message`, which bayescompR maps to its condition classes.
